@@ -1,0 +1,76 @@
+name: Deploy
+
+# Every push to main: run the full CI, then plan and apply to dev.
+# The apply job runs in the GitHub environment "dev"; only that environment can assume the
+# deploy role, so adding required reviewers there turns this into a manual approval gate.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false # never interrupt a running apply
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      id-token: write # a called workflow can't ask for more than this; its plan job is skipped on push
+
+  deploy:
+    name: Deploy to dev
+    needs: ci
+    if: vars.AWS_DEPLOY_ROLE_ARN != '' # skipped until AWS is set up (see infra/README.md)
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
+      TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
+      TF_VAR_lambda_permissions_boundary: ${{ vars.LAMBDA_PERMISSIONS_BOUNDARY_ARN }}
+      TF_IN_AUTOMATION: "true"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Build Lambda packages
+        run: python scripts/build_lambda.py --all
+
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.12"
+          terraform_wrapper: false
+
+      - name: Init
+        working-directory: infra/envs/dev
+        run: >-
+          terraform init -input=false
+          -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          -backend-config="region=${{ env.AWS_REGION }}"
+          -backend-config="dynamodb_table=${{ vars.TF_STATE_BUCKET }}-locks"
+
+      - name: Plan
+        working-directory: infra/envs/dev
+        run: terraform plan -input=false -no-color -lock-timeout=5m -out=tfplan
+
+      - name: Apply
+        working-directory: infra/envs/dev
+        run: terraform apply -input=false -no-color -lock-timeout=5m tfplan

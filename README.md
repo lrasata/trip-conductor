@@ -2,7 +2,7 @@
 
 I wanted to practise **orchestration**: one component coordinating several services through a business transaction that must succeed as a whole, or not at all. To have something concrete to build, I imagined a scenario, split it into the problems it raises, matched each problem with a design pattern, and then looked for the AWS services to build each pattern with.
 
-> **Status:** design. This README, the [requirements](docs/requirements.md), the [event and command catalog](docs/events/catalog.md) and the [decisions](docs/decisions/) are written; services and infrastructure come next.
+> **Status:** foundation. The [requirements](docs/requirements.md), the [event and command catalog](docs/events/catalog.md), the [decisions](docs/decisions/), the [Terraform stacks and CI/CD](infra/README.md) are in place; services come next.
 
 ## The scenario
 

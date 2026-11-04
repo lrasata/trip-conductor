@@ -1,0 +1,4 @@
+# Copy to backend.hcl and fill in the values printed by infra/bootstrap.
+bucket         = "trip-conductor-tfstate-<account-id>-eu-central-1"
+region         = "eu-central-1"
+dynamodb_table = "trip-conductor-tfstate-<account-id>-eu-central-1-locks"

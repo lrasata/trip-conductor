@@ -1,0 +1,93 @@
+name: Destroy
+
+# Manual only: tear dev down when it isn't needed. Bring it back with Deploy > Run workflow
+# (or any push to main).
+#
+#   services    apply with an empty `services` list: removes the services and their data,
+#               keeps the budget, the bus, its archive and alerting
+#   everything  terraform destroy: the whole dev environment, event archive included
+#
+# Runs in the GitHub environment "dev", so it needs the same approval as a deploy.
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "What to remove"
+        type: choice
+        options: [services, everything]
+        default: services
+      confirm:
+        description: 'Type "destroy dev" to confirm'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-dev # never at the same time as a deploy
+  cancel-in-progress: false
+
+jobs:
+  destroy:
+    name: Destroy dev (${{ inputs.scope }})
+    if: inputs.confirm == 'destroy dev' && vars.AWS_DEPLOY_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
+      TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
+      TF_VAR_lambda_permissions_boundary: ${{ vars.LAMBDA_PERMISSIONS_BOUNDARY_ARN }}
+      TF_IN_AUTOMATION: "true"
+    steps:
+      - uses: actions/checkout@v5
+
+      # Terraform reads every archive_file, even to destroy, so the packages must exist.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Build Lambda packages
+        run: python scripts/build_lambda.py --all
+
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.12"
+          terraform_wrapper: false
+
+      - name: Init
+        working-directory: infra/envs/dev
+        run: >-
+          terraform init -input=false
+          -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          -backend-config="region=${{ env.AWS_REGION }}"
+          -backend-config="dynamodb_table=${{ vars.TF_STATE_BUCKET }}-locks"
+
+      - name: Plan
+        working-directory: infra/envs/dev
+        env:
+          SCOPE: ${{ inputs.scope }}
+        run: |
+          if [ "$SCOPE" = "everything" ]; then
+            terraform plan -destroy -input=false -no-color -lock-timeout=5m -out=tfplan
+          else
+            TF_VAR_services='[]' terraform plan -input=false -no-color -lock-timeout=5m -out=tfplan
+          fi
+          {
+            echo "## Destroy plan (dev, $SCOPE)"
+            echo '```'
+            terraform show -no-color tfplan | grep -E '^ *# .* (destroyed|replaced)|Plan:|No changes' | head -300
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply
+        working-directory: infra/envs/dev
+        run: terraform apply -input=false -no-color -lock-timeout=5m tfplan

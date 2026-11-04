@@ -1,0 +1,3 @@
+# Test-only dependencies. The library itself uses only the standard library.
+jsonschema[format]>=4.23
+pytest>=8.0

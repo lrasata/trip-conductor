@@ -1,0 +1,116 @@
+name: CI
+
+# Pull requests: tests, Terraform checks and a plan. Also called by the deploy workflow,
+# so main is never deployed without the same checks passing first.
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: Test ${{ matrix.path }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        path: [libs/event_envelope]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13" # same as the Lambda runtime
+          cache: pip
+          cache-dependency-path: "**/requirements*.txt"
+
+      - name: Install
+        working-directory: ${{ matrix.path }}
+        run: pip install -r requirements-dev.txt
+
+      - name: Test
+        run: pytest ${{ matrix.path }} -v
+
+  terraform:
+    name: Terraform checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.12"
+
+      - name: Format
+        run: terraform fmt -check -recursive -diff infra
+
+      - name: Validate
+        run: |
+          for dir in infra/bootstrap infra/ci infra/envs/dev; do
+            echo "::group::$dir"
+            terraform -chdir="$dir" init -backend=false -input=false
+            terraform -chdir="$dir" validate
+            echo "::endgroup::"
+          done
+
+  plan:
+    name: Plan (dev)
+    needs: [test, terraform]
+    # Only on pull requests from this repo (forks get no AWS access), and only once AWS is set up.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      vars.AWS_PLAN_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC: exchange a GitHub token for short-lived AWS credentials
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
+      TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
+      TF_VAR_lambda_permissions_boundary: ${{ vars.LAMBDA_PERMISSIONS_BOUNDARY_ARN }}
+      TF_IN_AUTOMATION: "true"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Build Lambda packages
+        run: python scripts/build_lambda.py --all
+
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.12"
+          terraform_wrapper: false
+
+      - name: Init
+        working-directory: infra/envs/dev
+        run: >-
+          terraform init -input=false
+          -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          -backend-config="region=${{ env.AWS_REGION }}"
+          -backend-config="dynamodb_table=${{ vars.TF_STATE_BUCKET }}-locks"
+
+      - name: Plan
+        working-directory: infra/envs/dev
+        run: |
+          terraform plan -input=false -no-color -lock-timeout=2m -out=tfplan
+          {
+            echo "## Terraform plan (dev)"
+            echo '```'
+            terraform show -no-color tfplan | grep -E '^ *[#~+-]|Plan:|No changes' | head -300
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

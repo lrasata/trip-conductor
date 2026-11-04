@@ -2,7 +2,25 @@
 
 Orchestrated trip booking on AWS: a Step Functions Standard state machine (the saga) sends commands to the flight, hotel and payment services over SQS with task tokens, compensates in reverse on failure, and publishes domain events to an EventBridge bus that feeds a CQRS read model and notifications. Vendor calls go through a DynamoDB-backed circuit breaker. Python 3.13 on Lambda, Terraform, GitHub Actions with OIDC. Sibling project of `../apply-relay` (choreography) and follows its conventions unless noted here.
 
-Status: design. Start with `README.md`, `docs/requirements.md`, `docs/events/catalog.md` and `docs/decisions/`.
+Status: foundation built (Terraform stacks, GitHub workflows, `libs/event_envelope`); services come next. Start with `README.md`, `docs/requirements.md`, `docs/events/catalog.md`, `docs/decisions/` and `infra/README.md`.
+
+## Commands
+
+Tests run one folder at a time, each with its own `pyproject.toml`. CI lists them in the matrix of `ci.yml`.
+
+```bash
+pip install -r libs/event_envelope/requirements-dev.txt
+pytest libs/event_envelope
+```
+
+Terraform:
+
+```bash
+python scripts/build_lambda.py --all       # before any plan: Terraform zips services/<service>/build/package
+terraform fmt -recursive infra             # CI fails on unformatted files
+terraform -chdir=infra/envs/dev validate
+terraform -chdir=infra/envs/dev plan -var-file=dev.tfvars
+```
 
 ## Conventions
 
