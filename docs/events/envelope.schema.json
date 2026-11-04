@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trip-conductor/events/envelope.schema.json",
+  "title": "Message envelope",
+  "description": "Common wrapper for every command (SQS) and event (EventBridge `detail`). The message-specific payload goes in `data`.",
+  "type": "object",
+  "required": ["message_id", "message_kind", "message_type", "message_version", "occurred_at", "correlation_id", "producer", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "message_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique per message. Consumers use it to ignore duplicate deliveries and replays."
+    },
+    "message_kind": {
+      "enum": ["command", "event"]
+    },
+    "message_type": {
+      "type": "string",
+      "description": "Command or event name, e.g. ReserveFlight or FlightReserved. See catalog.md."
+    },
+    "message_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Payload version. Bumped on breaking changes to `data`."
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the command was sent or the fact happened, in UTC (ISO 8601)."
+    },
+    "correlation_id": {
+      "type": "string",
+      "description": "The trip ID (trp_...), or vendor:<name> for circuit breaker events."
+    },
+    "producer": {
+      "enum": ["booking-saga", "flight-service", "hotel-service", "payment-service"]
+    },
+    "task_token": {
+      "type": "string",
+      "description": "Commands only: the Step Functions task token to answer with. Never logged."
+    },
+    "data": {
+      "type": "object",
+      "description": "Message-specific payload; see catalog.md."
+    }
+  },
+  "if": { "properties": { "message_kind": { "const": "command" } } },
+  "then": { "required": ["task_token"] },
+  "else": { "not": { "required": ["task_token"] } }
+}

@@ -1,0 +1,164 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1870" height="1140" viewBox="0 0 1870 1140">
+<style>
+text { font-family: 'Segoe UI', Helvetica, Arial, sans-serif; }
+.title { font-size: 20px; font-weight: 600; fill: #222; }
+.node { font-size: 15px; font-weight: 600; }
+.sub { font-size: 12.5px; }
+.edge { font-size: 12px; fill: #555; }
+.note { font-size: 13px; fill: #555; }
+.region { font-size: 14px; font-weight: 600; fill: #b8407f; }
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#888"/></marker></defs>
+<rect width="1870" height="1140" fill="#ffffff"/>
+<text class="title" x="935.0" y="40" text-anchor="middle">Trip Conductor: orchestrated booking saga on AWS</text>
+<ellipse cx="100.0" cy="552.0" rx="70.0" ry="32.0" fill="#e8f1fb" stroke="#2f6db5" stroke-width="1.5"/>
+<text class="node" x="100.0" y="557.0" text-anchor="middle" fill="#1d3f6e">Traveller</text>
+<rect x="220" y="300" width="170" height="64" rx="10" fill="#e8f1fb" stroke="#2f6db5" stroke-width="1.5"/>
+<text class="node" x="305.0" y="329.0" text-anchor="middle" fill="#1d3f6e">API Gateway</text>
+<text class="sub" x="305.0" y="347.0" text-anchor="middle" fill="#2f6db5">POST /trips</text>
+<rect x="440" y="300" width="170" height="64" rx="10" fill="#eeeefc" stroke="#5b55c9" stroke-width="1.5"/>
+<text class="node" x="525.0" y="329.0" text-anchor="middle" fill="#2b2680">trip-commands</text>
+<text class="sub" x="525.0" y="347.0" text-anchor="middle" fill="#5b55c9">Lambda</text>
+<polyline points="100,520 100,332 220,332" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<text class="edge" x="160" y="322" text-anchor="middle">book</text>
+<polyline points="390,332 440,332" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<polyline points="610,332 720,332" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<text class="edge" x="665" y="322" text-anchor="middle">StartExecution</text>
+<rect x="720" y="100" width="180" height="440" rx="10" fill="#fbe8f3" stroke="#b8407f" stroke-width="1.5"/>
+<text class="node" x="810.0" y="317.0" text-anchor="middle" fill="#6e1d4a">Step Functions</text>
+<text class="sub" x="810.0" y="335.0" text-anchor="middle" fill="#b8407f">booking saga</text>
+<text class="sub" x="810" y="375" text-anchor="middle">1. reserve flight</text>
+<text class="sub" x="810" y="393" text-anchor="middle">2. reserve hotel</text>
+<text class="sub" x="810" y="411" text-anchor="middle">3. charge payment</text>
+<text class="sub" x="810" y="429" text-anchor="middle">4. confirm both</text>
+<text class="sub" x="810" y="447" text-anchor="middle"></text>
+<text class="sub" x="810" y="465" text-anchor="middle">on failure:</text>
+<text class="sub" x="810" y="483" text-anchor="middle">release in reverse</text>
+<polyline points="900,172.0 1020,172.0" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<text class="edge" x="960" y="164.0" text-anchor="middle">command</text>
+<rect x="1020" y="140" width="180" height="64" rx="10" fill="#e3f4ec" stroke="#2f8a62" stroke-width="1.5"/>
+<text class="node" x="1110.0" y="169.0" text-anchor="middle" fill="#145a3c">SQS</text>
+<text class="sub" x="1110.0" y="187.0" text-anchor="middle" fill="#2f8a62">flight commands</text>
+<polyline points="1110,204 1110,224" fill="none" stroke="#888" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+<rect x="1020" y="224" width="180" height="36" rx="10" fill="#fbe9e9" stroke="#c0393b" stroke-width="1.5"/>
+<text class="node" x="1110.0" y="247.0" text-anchor="middle" fill="#7a1a1c">DLQ</text>
+<polyline points="1200,172.0 1270,172.0" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="1270" y="140" width="180" height="64" rx="10" fill="#eeeefc" stroke="#5b55c9" stroke-width="1.5"/>
+<text class="node" x="1360.0" y="169.0" text-anchor="middle" fill="#2b2680">Flight service</text>
+<text class="sub" x="1360.0" y="187.0" text-anchor="middle" fill="#5b55c9">Lambda</text>
+<polyline points="1450,172.0 1480,172.0" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="1480" y="152.0" width="80" height="40" rx="10" fill="#fff4cc" stroke="#c79a00" stroke-width="1.5"/>
+<text class="node" x="1520.0" y="177.0" text-anchor="middle" fill="#6b5200">breaker</text>
+<polyline points="1560,172.0 1590,172.0" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<ellipse cx="1680.0" cy="172.0" rx="90.0" ry="32.0" fill="#ebf4e0" stroke="#5a8a2f" stroke-width="1.5"/>
+<text class="node" x="1680.0" y="169.0" text-anchor="middle" fill="#2f4f12">Airline</text>
+<text class="sub" x="1680.0" y="187.0" text-anchor="middle" fill="#5a8a2f">vendor simulator</text>
+<polyline points="1360,140 1360,120 900,120" fill="none" stroke="#888" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+<polyline points="1360,204 1360,232 1810,232" fill="none" stroke="#888" stroke-width="2"/>
+<polyline points="900,332.0 1020,332.0" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<text class="edge" x="960" y="324.0" text-anchor="middle">command</text>
+<rect x="1020" y="300" width="180" height="64" rx="10" fill="#e3f4ec" stroke="#2f8a62" stroke-width="1.5"/>
+<text class="node" x="1110.0" y="329.0" text-anchor="middle" fill="#145a3c">SQS</text>
+<text class="sub" x="1110.0" y="347.0" text-anchor="middle" fill="#2f8a62">hotel commands</text>
+<polyline points="1110,364 1110,384" fill="none" stroke="#888" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+<rect x="1020" y="384" width="180" height="36" rx="10" fill="#fbe9e9" stroke="#c0393b" stroke-width="1.5"/>
+<text class="node" x="1110.0" y="407.0" text-anchor="middle" fill="#7a1a1c">DLQ</text>
+<polyline points="1200,332.0 1270,332.0" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="1270" y="300" width="180" height="64" rx="10" fill="#eeeefc" stroke="#5b55c9" stroke-width="1.5"/>
+<text class="node" x="1360.0" y="329.0" text-anchor="middle" fill="#2b2680">Hotel service</text>
+<text class="sub" x="1360.0" y="347.0" text-anchor="middle" fill="#5b55c9">Lambda</text>
+<polyline points="1450,332.0 1480,332.0" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="1480" y="312.0" width="80" height="40" rx="10" fill="#fff4cc" stroke="#c79a00" stroke-width="1.5"/>
+<text class="node" x="1520.0" y="337.0" text-anchor="middle" fill="#6b5200">breaker</text>
+<polyline points="1560,332.0 1590,332.0" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<ellipse cx="1680.0" cy="332.0" rx="90.0" ry="32.0" fill="#ebf4e0" stroke="#5a8a2f" stroke-width="1.5"/>
+<text class="node" x="1680.0" y="329.0" text-anchor="middle" fill="#2f4f12">Hotel provider</text>
+<text class="sub" x="1680.0" y="347.0" text-anchor="middle" fill="#5a8a2f">vendor simulator</text>
+<polyline points="1360,300 1360,280 900,280" fill="none" stroke="#888" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+<polyline points="1360,364 1360,392 1810,392" fill="none" stroke="#888" stroke-width="2"/>
+<polyline points="900,492.0 1020,492.0" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<text class="edge" x="960" y="484.0" text-anchor="middle">command</text>
+<rect x="1020" y="460" width="180" height="64" rx="10" fill="#e3f4ec" stroke="#2f8a62" stroke-width="1.5"/>
+<text class="node" x="1110.0" y="489.0" text-anchor="middle" fill="#145a3c">SQS</text>
+<text class="sub" x="1110.0" y="507.0" text-anchor="middle" fill="#2f8a62">payment commands</text>
+<polyline points="1110,524 1110,544" fill="none" stroke="#888" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+<rect x="1020" y="544" width="180" height="36" rx="10" fill="#fbe9e9" stroke="#c0393b" stroke-width="1.5"/>
+<text class="node" x="1110.0" y="567.0" text-anchor="middle" fill="#7a1a1c">DLQ</text>
+<polyline points="1200,492.0 1270,492.0" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="1270" y="460" width="180" height="64" rx="10" fill="#eeeefc" stroke="#5b55c9" stroke-width="1.5"/>
+<text class="node" x="1360.0" y="489.0" text-anchor="middle" fill="#2b2680">Payment service</text>
+<text class="sub" x="1360.0" y="507.0" text-anchor="middle" fill="#5b55c9">Lambda</text>
+<polyline points="1450,492.0 1480,492.0" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="1480" y="472.0" width="80" height="40" rx="10" fill="#fff4cc" stroke="#c79a00" stroke-width="1.5"/>
+<text class="node" x="1520.0" y="497.0" text-anchor="middle" fill="#6b5200">breaker</text>
+<polyline points="1560,492.0 1590,492.0" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<ellipse cx="1680.0" cy="492.0" rx="90.0" ry="32.0" fill="#ebf4e0" stroke="#5a8a2f" stroke-width="1.5"/>
+<text class="node" x="1680.0" y="489.0" text-anchor="middle" fill="#2f4f12">Payment provider</text>
+<text class="sub" x="1680.0" y="507.0" text-anchor="middle" fill="#5a8a2f">vendor simulator</text>
+<polyline points="1360,460 1360,440 900,440" fill="none" stroke="#888" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+<polyline points="1360,524 1360,552 1810,552" fill="none" stroke="#888" stroke-width="2"/>
+<text class="edge" x="1130" y="113" text-anchor="middle">SendTaskSuccess / SendTaskFailure (task token)</text>
+<polyline points="1810,232 1810,640" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<text class="edge" x="1585" y="545" text-anchor="middle">FlightReserved, HotelReserved, PaymentCharged, …</text>
+<polyline points="810,540 810,640" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<text class="edge" x="820" y="595" text-anchor="start">TripRequested · TripConfirmed · TripCancelled</text>
+<rect x="720" y="640" width="1110" height="64" rx="10" fill="#fbeedd" stroke="#b07325" stroke-width="1.5"/>
+<text class="node" x="1275.0" y="669.0" text-anchor="middle" fill="#6b4310">EventBridge</text>
+<text class="sub" x="1275.0" y="687.0" text-anchor="middle" fill="#b07325">trip-events bus</text>
+<polyline points="720,672 610,672" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<text class="edge" x="665" y="662" text-anchor="middle">archive</text>
+<rect x="440" y="640" width="170" height="64" rx="10" fill="#f2f0eb" stroke="#77736b" stroke-width="1.5"/>
+<text class="node" x="525.0" y="669.0" text-anchor="middle" fill="#3d3a35">Event archive</text>
+<text class="sub" x="525.0" y="687.0" text-anchor="middle" fill="#77736b">replay rebuilds the view</text>
+<polyline points="1360,704 1360,780" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<text class="edge" x="1370" y="748" text-anchor="start">trip events</text>
+<rect x="1270" y="780" width="180" height="64" rx="10" fill="#e3f4ec" stroke="#2f8a62" stroke-width="1.5"/>
+<text class="node" x="1360.0" y="809.0" text-anchor="middle" fill="#145a3c">SQS</text>
+<text class="sub" x="1360.0" y="827.0" text-anchor="middle" fill="#2f8a62">projector</text>
+<polyline points="1360,844 1360,864" fill="none" stroke="#888" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+<rect x="1270" y="864" width="180" height="36" rx="10" fill="#fbe9e9" stroke="#c0393b" stroke-width="1.5"/>
+<text class="node" x="1360.0" y="887.0" text-anchor="middle" fill="#7a1a1c">DLQ</text>
+<polyline points="1270,812 1200,812" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="1020" y="780" width="180" height="64" rx="10" fill="#eeeefc" stroke="#5b55c9" stroke-width="1.5"/>
+<text class="node" x="1110.0" y="809.0" text-anchor="middle" fill="#2b2680">Projector</text>
+<text class="sub" x="1110.0" y="827.0" text-anchor="middle" fill="#5b55c9">Lambda</text>
+<polyline points="1020,812 900,812" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<text class="edge" x="960" y="802" text-anchor="middle">upsert</text>
+<rect x="720" y="780" width="180" height="64" rx="10" fill="#f2f0eb" stroke="#77736b" stroke-width="1.5"/>
+<text class="node" x="810.0" y="809.0" text-anchor="middle" fill="#3d3a35">DynamoDB</text>
+<text class="sub" x="810.0" y="827.0" text-anchor="middle" fill="#77736b">trip-view (read model)</text>
+<polyline points="610,812 720,812" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<text class="edge" x="665" y="802" text-anchor="middle">read</text>
+<rect x="440" y="780" width="170" height="64" rx="10" fill="#eeeefc" stroke="#5b55c9" stroke-width="1.5"/>
+<text class="node" x="525.0" y="809.0" text-anchor="middle" fill="#2b2680">trip-queries</text>
+<text class="sub" x="525.0" y="827.0" text-anchor="middle" fill="#5b55c9">Lambda</text>
+<polyline points="390,812 440,812" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="220" y="780" width="170" height="64" rx="10" fill="#e8f1fb" stroke="#2f6db5" stroke-width="1.5"/>
+<text class="node" x="305.0" y="809.0" text-anchor="middle" fill="#1d3f6e">API Gateway</text>
+<text class="sub" x="305.0" y="827.0" text-anchor="middle" fill="#2f6db5">GET /trips</text>
+<polyline points="130,581 130,812 220,812" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<text class="edge" x="175" y="802" text-anchor="middle">track</text>
+<polyline points="1520,704 1520,972 1450,972" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<text class="edge" x="1530" y="760" text-anchor="start">TripConfirmed / TripCancelled</text>
+<rect x="1270" y="940" width="180" height="64" rx="10" fill="#e3f4ec" stroke="#2f8a62" stroke-width="1.5"/>
+<text class="node" x="1360.0" y="969.0" text-anchor="middle" fill="#145a3c">SQS</text>
+<text class="sub" x="1360.0" y="987.0" text-anchor="middle" fill="#2f8a62">notification</text>
+<polyline points="1360,1004 1360,1024" fill="none" stroke="#888" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+<rect x="1270" y="1024" width="180" height="36" rx="10" fill="#fbe9e9" stroke="#c0393b" stroke-width="1.5"/>
+<text class="node" x="1360.0" y="1047.0" text-anchor="middle" fill="#7a1a1c">DLQ</text>
+<polyline points="1270,972 1200,972" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="1020" y="940" width="180" height="64" rx="10" fill="#eeeefc" stroke="#5b55c9" stroke-width="1.5"/>
+<text class="node" x="1110.0" y="969.0" text-anchor="middle" fill="#2b2680">Notification</text>
+<text class="sub" x="1110.0" y="987.0" text-anchor="middle" fill="#5b55c9">Lambda</text>
+<polyline points="1020,972 900,972" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="720" y="940" width="180" height="64" rx="10" fill="#e8f1fb" stroke="#2f6db5" stroke-width="1.5"/>
+<text class="node" x="810.0" y="969.0" text-anchor="middle" fill="#1d3f6e">SES</text>
+<text class="sub" x="810.0" y="987.0" text-anchor="middle" fill="#2f6db5">email</text>
+<polyline points="720,972 70,972 70,581" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
+<text class="edge" x="395" y="962" text-anchor="middle">booked / cancelled</text>
+<rect x="1590" y="790" width="240" height="64" rx="10" fill="#f2f0eb" stroke="#77736b" stroke-width="1.5"/>
+<text class="node" x="1710.0" y="819.0" text-anchor="middle" fill="#3d3a35">DynamoDB</text>
+<text class="sub" x="1710.0" y="837.0" text-anchor="middle" fill="#77736b">circuit-breakers (shared state)</text>
+<text class="note" x="30" y="1100" text-anchor="start">Each service owns its own DynamoDB table (reservations, payments, notifications). Every SQS queue sends failed messages to its own dead-letter queue (dashed down).</text>
+<text class="note" x="30" y="1122" text-anchor="start">Dashed arrows back to Step Functions are task-token callbacks. Each breaker keeps its state in the circuit-breakers table, one item per vendor.</text>
+</svg>

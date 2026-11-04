@@ -1,0 +1,31 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!example.tfvars
+crash.log
+
+# Build output
+dist/
+*.zip
+.env
+backend.hcl
+
+# Lambda zips built by Terraform
+infra/envs/*/build/
+services/*/build/
+
+# IDE
+*.iml
+.idea/
+
+# Claude Code: settings.json and skills/ are shared; these are personal
+.claude/settings.local.json
+.claude/worktrees/
