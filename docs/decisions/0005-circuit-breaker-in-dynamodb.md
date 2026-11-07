@@ -20,6 +20,7 @@ A small shared library, `libs/circuit_breaker`, used by each service around its 
 * Closed → Open after 5 failures within 60 s.
 * Open → fail fast with `VendorUnavailable` for 30 s.
 * After 30 s, one caller wins a conditional write to `HALF_OPEN` and makes the probe; everyone else keeps failing fast. Success closes the breaker, failure reopens it.
+* A probe holds a 30 s lease. If its Lambda crashes, another caller takes the probe over once the lease ends, so the breaker can't stay half-open forever.
 * Failures are timeouts (3 s), connection errors and 5xx. Business refusals are successes from the breaker's point of view.
 * Thresholds come from environment variables, so the demo can use smaller numbers.
 
@@ -27,6 +28,6 @@ A small shared library, `libs/circuit_breaker`, used by each service around its 
 
 * `libs/` is the one place code is shared between services, an exception to Apply Relay's "each service is self-contained". `build_lambda.py` bundles it into each service's zip, and it has its own tests.
 * The table is shared physically, but each service's IAM role is limited to its own vendor's item with `dynamodb:LeadingKeys`, so data ownership still holds.
-* The library publishes `CircuitOpened` / `CircuitClosed` only from the caller whose conditional write made the transition, so each transition is announced once.
+* The library reports a change only to the caller whose conditional write made the transition, and that service publishes `CircuitOpened` / `CircuitClosed`, so each transition is announced once. A failed probe reopens the breaker silently: consumers were told it opened, and it never closed.
 * If DynamoDB itself is unreachable, the breaker fails open (calls go through): losing protection is better than refusing every booking.
 * The saga's retry with backoff (30, 60, 120 s) is aligned with the cool-down, so a retried booking usually reaches the vendor right after a probe succeeds.

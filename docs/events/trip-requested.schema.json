@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trip-conductor/events/trip-requested.schema.json",
+  "title": "TripRequested v1 data",
+  "type": "object",
+  "required": ["customer_id", "flight_offer_id", "hotel_offer_id", "requested_at"],
+  "properties": {
+    "customer_id": { "type": "string" },
+    "flight_offer_id": { "type": "string" },
+    "hotel_offer_id": { "type": "string" },
+    "requested_at": { "type": "string", "format": "date-time" }
+  }
+}

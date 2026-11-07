@@ -1,0 +1,6 @@
+{
+  "customer_id": "cus_demo",
+  "flight": { "offer_id": "fl_lis_weekend", "passengers": 2 },
+  "hotel": { "offer_id": "ht_lis_centre" },
+  "release_after_reserve": true
+}

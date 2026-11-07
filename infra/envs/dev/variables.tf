@@ -40,6 +40,28 @@ variable "services" {
     condition     = alltrue([for s in var.services : contains(["vendor-simulator", "flight", "hotel", "payment", "booking-saga", "trip-commands", "projector", "trip-queries", "notification"], s)])
     error_message = "services may only contain: vendor-simulator, flight, hotel, payment, booking-saga, trip-commands, projector, trip-queries, notification."
   }
+
+  validation {
+    condition     = !contains(var.services, "flight") || contains(var.services, "vendor-simulator")
+    error_message = "flight calls the vendor simulator, so deploy vendor-simulator first."
+  }
+
+  validation {
+    condition     = !contains(var.services, "booking-saga") || contains(var.services, "flight")
+    error_message = "booking-saga sends commands to the flight queue, so deploy flight first."
+  }
+}
+
+variable "vendor_api_rate_limit" {
+  description = "Steady-state requests per second allowed on the vendor simulator's public API."
+  type        = number
+  default     = 20
+}
+
+variable "vendor_api_burst_limit" {
+  description = "Short burst of requests allowed on the vendor simulator's public API."
+  type        = number
+  default     = 40
 }
 
 variable "lambda_permissions_boundary" {

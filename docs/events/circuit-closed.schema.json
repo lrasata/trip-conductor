@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trip-conductor/events/circuit-closed.schema.json",
+  "title": "CircuitClosed v1 data",
+  "type": "object",
+  "required": ["vendor", "closed_at"],
+  "properties": {
+    "vendor": { "type": "string" },
+    "closed_at": { "type": "string", "format": "date-time" }
+  }
+}

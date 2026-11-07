@@ -20,6 +20,6 @@ Step Functions Standard. A booking is a low-volume, long-ish, must-be-correct wo
 ## Consequences
 
 * Step Functions refuses a second execution with the same name (for 90 days), which gives `POST /trips` idempotency without a table.
-* The saga is defined in ASL (JSON) under `statemachine/`, with `${...}` placeholders filled by Terraform. It's tested by running the state machine against Step Functions Local in CI, with mocked service integrations for each scenario in `docs/requirements.md`.
+* The saga is defined in ASL (JSON) under `statemachine/`, with `${...}` placeholders filled by Terraform. For now, CI checks the definition itself (timeouts, retries, targets, the time budget) and its behaviour is tested against AWS. Running it on Step Functions Local, with mocked service integrations for each scenario in `docs/requirements.md`, comes with the full saga.
 * A booking is about 15 to 25 state transitions: fractions of a cent.
 * Changing the definition while bookings run is safe: running executions keep the version they started with.

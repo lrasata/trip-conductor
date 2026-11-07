@@ -20,7 +20,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        path: [libs/event_envelope]
+        path:
+          - libs/event_envelope
+          - libs/circuit_breaker
+          - services/vendor_simulator
+          - services/flight
+          - statemachine
     steps:
       - uses: actions/checkout@v5
 

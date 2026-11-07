@@ -1,0 +1,225 @@
+{
+  "Comment": "The booking saga, first slice: reserve the flight, or cancel. The trip ID is the execution name.",
+  "StartAt": "PublishTripRequested",
+  "TimeoutSeconds": 900,
+  "States": {
+    "PublishTripRequested": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::events:putEvents",
+      "TimeoutSeconds": 30,
+      "Parameters": {
+        "Entries": [
+          {
+            "EventBusName": "${event_bus_name}",
+            "Source": "trip-conductor.booking-saga",
+            "DetailType": "TripRequested",
+            "Detail": {
+              "message_id.$": "States.UUID()",
+              "message_kind": "event",
+              "message_type": "TripRequested",
+              "message_version": 1,
+              "occurred_at.$": "$$.State.EnteredTime",
+              "correlation_id.$": "$$.Execution.Name",
+              "producer": "booking-saga",
+              "data": {
+                "customer_id.$": "$.customer_id",
+                "flight_offer_id.$": "$.flight.offer_id",
+                "hotel_offer_id.$": "$.hotel.offer_id",
+                "requested_at.$": "$$.Execution.StartTime"
+              }
+            }
+          }
+        ]
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxAttempts": 3
+        }
+      ],
+      "Next": "ReserveFlight"
+    },
+    "ReserveFlight": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+      "TimeoutSeconds": 60,
+      "Parameters": {
+        "QueueUrl": "${flight_queue_url}",
+        "MessageBody": {
+          "message_id.$": "States.UUID()",
+          "message_kind": "command",
+          "message_type": "ReserveFlight",
+          "message_version": 1,
+          "occurred_at.$": "$$.State.EnteredTime",
+          "correlation_id.$": "$$.Execution.Name",
+          "producer": "booking-saga",
+          "task_token.$": "$$.Task.Token",
+          "data": {
+            "offer_id.$": "$.flight.offer_id",
+            "passengers.$": "$.flight.passengers"
+          }
+        }
+      },
+      "ResultPath": "$.flight_reservation",
+      "Retry": [
+        {
+          "ErrorEquals": ["VendorUnavailable"],
+          "IntervalSeconds": 30,
+          "BackoffRate": 2,
+          "MaxAttempts": 3
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["FlightUnavailable"],
+          "ResultPath": "$.error",
+          "Next": "FlightUnavailable"
+        },
+        {
+          "ErrorEquals": ["VendorUnavailable"],
+          "ResultPath": "$.error",
+          "Next": "AirlineUnavailable"
+        },
+        {
+          "ErrorEquals": ["States.Timeout"],
+          "ResultPath": "$.error",
+          "Next": "ReserveFlightTimedOut"
+        }
+      ],
+      "Next": "ReleaseForTesting"
+    },
+    "ReleaseForTesting": {
+      "Comment": "Temporary: nothing releases a flight until the hotel step exists.",
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            { "Variable": "$.release_after_reserve", "IsPresent": true },
+            { "Variable": "$.release_after_reserve", "BooleanEquals": true }
+          ],
+          "Next": "TestRelease"
+        }
+      ],
+      "Default": "FlightHeld"
+    },
+    "FlightHeld": {
+      "Comment": "Temporary end of the saga: the hold expires on its own.",
+      "Type": "Succeed"
+    },
+    "TestRelease": {
+      "Type": "Pass",
+      "Result": { "reason": "TEST_RELEASE", "failed_step": "ReleaseForTesting" },
+      "ResultPath": "$.cancellation",
+      "Next": "ReleaseFlight"
+    },
+    "FlightUnavailable": {
+      "Type": "Pass",
+      "Result": { "reason": "FLIGHT_UNAVAILABLE", "failed_step": "ReserveFlight" },
+      "ResultPath": "$.cancellation",
+      "Next": "PublishTripCancelled"
+    },
+    "AirlineUnavailable": {
+      "Comment": "The hold, if the airline placed one, expires on its own: a release would hit the same outage.",
+      "Type": "Pass",
+      "Result": { "reason": "VENDOR_UNAVAILABLE", "failed_step": "ReserveFlight" },
+      "ResultPath": "$.cancellation",
+      "Next": "PublishTripCancelled"
+    },
+    "ReserveFlightTimedOut": {
+      "Comment": "The service may still act on the command, so the flight is released even without a reservation.",
+      "Type": "Pass",
+      "Result": { "reason": "TIMEOUT", "failed_step": "ReserveFlight" },
+      "ResultPath": "$.cancellation",
+      "Next": "ReleaseFlight"
+    },
+    "ReleaseFlight": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+      "TimeoutSeconds": 60,
+      "Parameters": {
+        "QueueUrl": "${flight_queue_url}",
+        "MessageBody": {
+          "message_id.$": "States.UUID()",
+          "message_kind": "command",
+          "message_type": "ReleaseFlight",
+          "message_version": 1,
+          "occurred_at.$": "$$.State.EnteredTime",
+          "correlation_id.$": "$$.Execution.Name",
+          "producer": "booking-saga",
+          "task_token.$": "$$.Task.Token",
+          "data": {
+            "reason.$": "$.cancellation.reason"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": ["VendorUnavailable", "States.Timeout"],
+          "IntervalSeconds": 30,
+          "BackoffRate": 2,
+          "MaxAttempts": 3
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "CompensationFailed"
+        }
+      ],
+      "Next": "PublishTripCancelled"
+    },
+    "CompensationFailed": {
+      "Comment": "A failed execution fires the alarm. The hold expires on its own as the last safety net.",
+      "Type": "Fail",
+      "Error": "CompensationFailed",
+      "Cause": "ReleaseFlight still failed after its retries."
+    },
+    "PublishTripCancelled": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::events:putEvents",
+      "TimeoutSeconds": 30,
+      "Parameters": {
+        "Entries": [
+          {
+            "EventBusName": "${event_bus_name}",
+            "Source": "trip-conductor.booking-saga",
+            "DetailType": "TripCancelled",
+            "Detail": {
+              "message_id.$": "States.UUID()",
+              "message_kind": "event",
+              "message_type": "TripCancelled",
+              "message_version": 1,
+              "occurred_at.$": "$$.State.EnteredTime",
+              "correlation_id.$": "$$.Execution.Name",
+              "producer": "booking-saga",
+              "data": {
+                "customer_id.$": "$.customer_id",
+                "reason.$": "$.cancellation.reason",
+                "failed_step.$": "$.cancellation.failed_step"
+              }
+            }
+          }
+        ]
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxAttempts": 3
+        }
+      ],
+      "Next": "TripCancelled"
+    },
+    "TripCancelled": {
+      "Comment": "A cancelled trip is a business outcome, not a failed execution: it must not fire the alarm.",
+      "Type": "Succeed"
+    }
+  }
+}

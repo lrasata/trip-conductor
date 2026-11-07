@@ -18,7 +18,7 @@ SQS with task tokens: one command queue per service. It keeps what made Apply Re
 
 ## Consequences
 
-* Every task has a `TimeoutSeconds` (and the services send heartbeats on long vendor calls), so a service that never answers fails the step instead of pausing the saga forever.
+* Every task has a `TimeoutSeconds`, so a service that never answers fails the step instead of pausing the saga forever. Vendor calls are capped at 3 s, far below it, so services send no heartbeats.
 * A service may answer twice (SQS redelivery). The second `SendTaskSuccess` gets `TaskTimedOut` / `InvalidToken` from Step Functions, which the service ignores.
 * The task token is a credential for one step: it's never logged and never put in an event.
-* Each service's IAM role gets `states:SendTaskSuccess`, `SendTaskFailure` and `SendTaskHeartbeat` on the booking state machine only.
+* Each service's IAM role gets `states:SendTaskSuccess` and `SendTaskFailure` on the booking state machine only.
