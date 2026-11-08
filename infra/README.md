@@ -23,12 +23,13 @@ infra/
 
 Services are added one at a time, and each gets its own `<service>.tf` gated by `local.deploy`.
 
-## What the first slice adds
+## What the services add
 
 | | Resources |
 |---|---|
-| Vendor simulator | `trip-conductor-dev-vendor-simulator` Lambda behind the public `trip-conductor-dev-vendors` HTTP API (20 requests/s, burst 40). Holds no data. Its failure settings are in the SSM parameter `/trip-conductor/dev/chaos/airline` |
+| Vendor simulator | `trip-conductor-dev-vendor-simulator` Lambda behind the public `trip-conductor-dev-vendors` HTTP API (20 requests/s, burst 40). Holds no data. Its failure settings are one SSM parameter per vendor: `/trip-conductor/dev/chaos/airline`, `/trip-conductor/dev/chaos/hotel` |
 | Flight service | `trip-conductor-dev-flight` Lambda, `trip-conductor-dev-flight-commands` queue with a DLQ and alarms, `trip-conductor-dev-flight-reservations` table |
+| Hotel service | The same for rooms: `trip-conductor-dev-hotel`, `trip-conductor-dev-hotel-commands`, `trip-conductor-dev-hotel-reservations` |
 | Circuit breakers | `trip-conductor-dev-circuit-breakers` table, one item per vendor |
 | Saga | `trip-conductor-dev-booking-saga` state machine, with alarms on failed and timed-out executions. A cancelled trip is a normal end, so it fires no alarm |
 
@@ -38,14 +39,18 @@ Open the state machine in the Step Functions console and choose **Start executio
 
 | Test | Input | Expected |
 |---|---|---|
-| A flight is available | `flight-available.json` | Ends in `FlightHeld`; the trip is `HELD` in `flight-reservations` |
-| Sold out | `flight-sold-out.json` | Ends in `TripCancelled`, reason `FLIGHT_UNAVAILABLE`, no retries |
-| Release | `flight-then-release.json` | Ends in `TripCancelled`; the trip is `RELEASED` |
-| Airline down | `python scripts/chaos.py airline --failure-rate 1`, then `flight-available.json` under several names | Retries at 30, 60 and 120 s, then `VENDOR_UNAVAILABLE`. After 5 failures the `airline` item in `circuit-breakers` is `OPEN` |
-| Airline back | `python scripts/chaos.py airline`, then `flight-available.json` under a new name | Once the cool-down has passed, the breaker closes |
-| Airline slow | `python scripts/chaos.py airline --latency-ms 8000` | Calls time out after 3 s and count as failures |
+| Both available | `trip-available.json` | Ends in `TripHeld`; the trip is `HELD` in `flight-reservations` and `hotel-reservations` |
+| Flight sold out | `flight-sold-out.json` | Ends in `TripCancelled`, reason `FLIGHT_UNAVAILABLE`, no retries, the hotel never asked |
+| Hotel sold out | `hotel-sold-out.json` | `ReleaseFlight`, then `TripCancelled`, reason `HOTEL_UNAVAILABLE` |
+| Release | `trip-then-release.json` | `ReleaseHotel`, then `ReleaseFlight`, then `TripCancelled`; both are `RELEASED` |
+| Airline down | Parameter `chaos/airline` set to `{"failure_rate": 1, "latency_ms": 0}`, then `trip-available.json` | Retries after 5, 10 and 20 s, then `VENDOR_UNAVAILABLE`. Two runs started together open the `airline` breaker |
+| Hotel down | The same with `chaos/hotel` | The flight is held, the hotel retried, then the flight released. Two runs open the `hotel` breaker; the `airline` one stays closed |
+| Vendor back | Parameter back to `{"failure_rate": 0, "latency_ms": 0}`, wait 30 s, then `trip-available.json` | The breaker closes |
+| Vendor slow | `{"failure_rate": 0, "latency_ms": 8000}` | Calls time out after 3 s and count as failures |
 
-Events aren't visible on the bus itself: the flight service logs `event published` for each one, and the saga's are steps in its graph. `chaos.py` needs the AWS CLI and credentials allowed `ssm:PutParameter` on `/trip-conductor/*`.
+Change a parameter in the console (Systems Manager → Parameter Store → Edit) or with `python scripts/chaos.py airline --failure-rate 1`, which needs the AWS CLI and credentials allowed `ssm:PutParameter` on `/trip-conductor/*`. The simulator reads it within 5 s.
+
+Events aren't visible on the bus itself: the services log `event published` for each one, and the saga's are steps in its graph.
 
 ## Deploy it yourself
 

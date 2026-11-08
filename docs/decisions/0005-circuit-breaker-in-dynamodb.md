@@ -30,4 +30,4 @@ A small shared library, `libs/circuit_breaker`, used by each service around its 
 * The table is shared physically, but each service's IAM role is limited to its own vendor's item with `dynamodb:LeadingKeys`, so data ownership still holds.
 * The library reports a change only to the caller whose conditional write made the transition, and that service publishes `CircuitOpened` / `CircuitClosed`, so each transition is announced once. A failed probe reopens the breaker silently: consumers were told it opened, and it never closed.
 * If DynamoDB itself is unreachable, the breaker fails open (calls go through): losing protection is better than refusing every booking.
-* The saga's retry with backoff (30, 60, 120 s) is aligned with the cool-down, so a retried booking usually reaches the vendor right after a probe succeeds.
+* The saga's retry with backoff (5, 10, 20 s) outlasts the 30 s cool-down, so a booking's last retry can be the probe that finds the vendor back. The backoff is short because three steps and their releases must fit in the 15 minutes of a hold.

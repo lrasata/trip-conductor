@@ -25,6 +25,7 @@ jobs:
           - libs/circuit_breaker
           - services/vendor_simulator
           - services/flight
+          - services/hotel
           - statemachine
     steps:
       - uses: actions/checkout@v5

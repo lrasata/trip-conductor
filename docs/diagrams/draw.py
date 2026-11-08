@@ -222,7 +222,7 @@ def saga():
     s.line([(1055, 240), (1055, 380)])
     s.text(1065, 315, "retries exhausted", anchor="start")
 
-    s.text(360, 540, "Each step retries VendorUnavailable with backoff (30, 60, 120 s) before failing.", "note", "start")
+    s.text(360, 540, "Each step retries VendorUnavailable with backoff (5, 10, 20 s) before failing.", "note", "start")
     s.text(360, 562, "Compensations are idempotent and retried too. Holds expire on their own,", "note", "start")
     s.text(360, 584, "so a saga that dies halfway still frees the seat and the room.", "note", "start")
     s.text(940, 540, "After the payment, confirmations are retried,", "note", "start")

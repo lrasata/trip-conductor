@@ -1,12 +1,12 @@
 {
-  "Comment": "The booking saga, first slice: reserve the flight, or cancel. The trip ID is the execution name.",
+  "Comment": "The booking saga, up to the hotel: reserve the flight, then the hotel, or release what's held in reverse. The trip ID is the execution name.",
   "StartAt": "PublishTripRequested",
   "TimeoutSeconds": 900,
   "States": {
     "PublishTripRequested": {
       "Type": "Task",
       "Resource": "arn:aws:states:::events:putEvents",
-      "TimeoutSeconds": 30,
+      "TimeoutSeconds": 10,
       "Parameters": {
         "Entries": [
           {
@@ -45,7 +45,7 @@
     "ReserveFlight": {
       "Type": "Task",
       "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
-      "TimeoutSeconds": 60,
+      "TimeoutSeconds": 20,
       "Parameters": {
         "QueueUrl": "${flight_queue_url}",
         "MessageBody": {
@@ -67,7 +67,7 @@
       "Retry": [
         {
           "ErrorEquals": ["VendorUnavailable"],
-          "IntervalSeconds": 30,
+          "IntervalSeconds": 5,
           "BackoffRate": 2,
           "MaxAttempts": 3
         }
@@ -89,31 +89,7 @@
           "Next": "ReserveFlightTimedOut"
         }
       ],
-      "Next": "ReleaseForTesting"
-    },
-    "ReleaseForTesting": {
-      "Comment": "Temporary: nothing releases a flight until the hotel step exists.",
-      "Type": "Choice",
-      "Choices": [
-        {
-          "And": [
-            { "Variable": "$.release_after_reserve", "IsPresent": true },
-            { "Variable": "$.release_after_reserve", "BooleanEquals": true }
-          ],
-          "Next": "TestRelease"
-        }
-      ],
-      "Default": "FlightHeld"
-    },
-    "FlightHeld": {
-      "Comment": "Temporary end of the saga: the hold expires on its own.",
-      "Type": "Succeed"
-    },
-    "TestRelease": {
-      "Type": "Pass",
-      "Result": { "reason": "TEST_RELEASE", "failed_step": "ReleaseForTesting" },
-      "ResultPath": "$.cancellation",
-      "Next": "ReleaseFlight"
+      "Next": "ReserveHotel"
     },
     "FlightUnavailable": {
       "Type": "Pass",
@@ -135,10 +111,142 @@
       "ResultPath": "$.cancellation",
       "Next": "ReleaseFlight"
     },
+    "ReserveHotel": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+      "TimeoutSeconds": 20,
+      "Parameters": {
+        "QueueUrl": "${hotel_queue_url}",
+        "MessageBody": {
+          "message_id.$": "States.UUID()",
+          "message_kind": "command",
+          "message_type": "ReserveHotel",
+          "message_version": 1,
+          "occurred_at.$": "$$.State.EnteredTime",
+          "correlation_id.$": "$$.Execution.Name",
+          "producer": "booking-saga",
+          "task_token.$": "$$.Task.Token",
+          "data": {
+            "offer_id.$": "$.hotel.offer_id",
+            "check_in.$": "$.hotel.check_in",
+            "check_out.$": "$.hotel.check_out",
+            "guests.$": "$.hotel.guests"
+          }
+        }
+      },
+      "ResultPath": "$.hotel_reservation",
+      "Retry": [
+        {
+          "ErrorEquals": ["VendorUnavailable"],
+          "IntervalSeconds": 5,
+          "BackoffRate": 2,
+          "MaxAttempts": 3
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["HotelUnavailable"],
+          "ResultPath": "$.error",
+          "Next": "HotelUnavailable"
+        },
+        {
+          "ErrorEquals": ["VendorUnavailable"],
+          "ResultPath": "$.error",
+          "Next": "HotelProviderUnavailable"
+        },
+        {
+          "ErrorEquals": ["States.Timeout"],
+          "ResultPath": "$.error",
+          "Next": "ReserveHotelTimedOut"
+        }
+      ],
+      "Next": "ReleaseForTesting"
+    },
+    "HotelUnavailable": {
+      "Type": "Pass",
+      "Result": { "reason": "HOTEL_UNAVAILABLE", "failed_step": "ReserveHotel" },
+      "ResultPath": "$.cancellation",
+      "Next": "ReleaseFlight"
+    },
+    "HotelProviderUnavailable": {
+      "Comment": "As for the airline: the room hold, if any, expires on its own. The flight is released.",
+      "Type": "Pass",
+      "Result": { "reason": "VENDOR_UNAVAILABLE", "failed_step": "ReserveHotel" },
+      "ResultPath": "$.cancellation",
+      "Next": "ReleaseFlight"
+    },
+    "ReserveHotelTimedOut": {
+      "Type": "Pass",
+      "Result": { "reason": "TIMEOUT", "failed_step": "ReserveHotel" },
+      "ResultPath": "$.cancellation",
+      "Next": "ReleaseHotel"
+    },
+    "ReleaseForTesting": {
+      "Comment": "Temporary: nothing releases both holds until the payment step exists.",
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            { "Variable": "$.release_after_reserve", "IsPresent": true },
+            { "Variable": "$.release_after_reserve", "BooleanEquals": true }
+          ],
+          "Next": "TestRelease"
+        }
+      ],
+      "Default": "TripHeld"
+    },
+    "TripHeld": {
+      "Comment": "Temporary end of the saga: the holds expire on their own.",
+      "Type": "Succeed"
+    },
+    "TestRelease": {
+      "Type": "Pass",
+      "Result": { "reason": "TEST_RELEASE", "failed_step": "ReleaseForTesting" },
+      "ResultPath": "$.cancellation",
+      "Next": "ReleaseHotel"
+    },
+    "ReleaseHotel": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+      "TimeoutSeconds": 20,
+      "Parameters": {
+        "QueueUrl": "${hotel_queue_url}",
+        "MessageBody": {
+          "message_id.$": "States.UUID()",
+          "message_kind": "command",
+          "message_type": "ReleaseHotel",
+          "message_version": 1,
+          "occurred_at.$": "$$.State.EnteredTime",
+          "correlation_id.$": "$$.Execution.Name",
+          "producer": "booking-saga",
+          "task_token.$": "$$.Task.Token",
+          "data": {
+            "reason.$": "$.cancellation.reason"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": ["VendorUnavailable", "States.Timeout"],
+          "IntervalSeconds": 5,
+          "BackoffRate": 2,
+          "MaxAttempts": 3
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "CompensationFailed"
+        }
+      ],
+      "Next": "ReleaseFlight"
+    },
     "ReleaseFlight": {
       "Type": "Task",
       "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
-      "TimeoutSeconds": 60,
+      "TimeoutSeconds": 20,
       "Parameters": {
         "QueueUrl": "${flight_queue_url}",
         "MessageBody": {
@@ -159,7 +267,7 @@
       "Retry": [
         {
           "ErrorEquals": ["VendorUnavailable", "States.Timeout"],
-          "IntervalSeconds": 30,
+          "IntervalSeconds": 5,
           "BackoffRate": 2,
           "MaxAttempts": 3
         }
@@ -174,15 +282,15 @@
       "Next": "PublishTripCancelled"
     },
     "CompensationFailed": {
-      "Comment": "A failed execution fires the alarm. The hold expires on its own as the last safety net.",
+      "Comment": "A failed execution fires the alarm. The holds expire on their own as the last safety net.",
       "Type": "Fail",
       "Error": "CompensationFailed",
-      "Cause": "ReleaseFlight still failed after its retries."
+      "Cause": "A release still failed after its retries."
     },
     "PublishTripCancelled": {
       "Type": "Task",
       "Resource": "arn:aws:states:::events:putEvents",
-      "TimeoutSeconds": 30,
+      "TimeoutSeconds": 10,
       "Parameters": {
         "Entries": [
           {

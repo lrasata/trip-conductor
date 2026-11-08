@@ -2,7 +2,7 @@
 
 Orchestrated trip booking on AWS: a Step Functions Standard state machine (the saga) sends commands to the flight, hotel and payment services over SQS with task tokens, compensates in reverse on failure, and publishes domain events to an EventBridge bus that feeds a CQRS read model and notifications. Vendor calls go through a DynamoDB-backed circuit breaker. Python 3.13 on Lambda, Terraform, GitHub Actions with OIDC. Sibling project of `../apply-relay` (choreography) and follows its conventions unless noted here.
 
-Status: first slice built (vendor simulator, circuit breaker, flight service, a short saga with the temporary `release_after_reserve` input); hotel, payment and the API come next. Start with `README.md`, `docs/requirements.md`, `docs/events/catalog.md`, `docs/decisions/` and `infra/README.md`.
+Status: flight and hotel built (vendor simulator, circuit breaker, flight and hotel services, a saga up to the hotel with the temporary `release_after_reserve` input); payment and confirmation come next, then the API. Start with `README.md`, `docs/requirements.md`, `docs/events/catalog.md`, `docs/decisions/` and `infra/README.md`.
 
 ## Commands
 
@@ -10,7 +10,7 @@ Tests run one folder at a time, each with its own `pyproject.toml`. CI lists the
 
 ```bash
 pip install -r services/flight/requirements-dev.txt
-pytest services/flight        # libs/event_envelope, libs/circuit_breaker, services/vendor_simulator, services/flight, statemachine
+pytest services/flight        # libs/event_envelope, libs/circuit_breaker, services/vendor_simulator, services/flight, services/hotel, statemachine
 ```
 
 Terraform:

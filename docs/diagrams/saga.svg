@@ -61,7 +61,7 @@ text { font-family: 'Segoe UI', Helvetica, Arial, sans-serif; }
 <polyline points="215,450 215,520" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
 <polyline points="1055,240 1055,380" fill="none" stroke="#888" stroke-width="2" marker-end="url(#arrow)"/>
 <text class="edge" x="1065" y="315" text-anchor="start">retries exhausted</text>
-<text class="note" x="360" y="540" text-anchor="start">Each step retries VendorUnavailable with backoff (30, 60, 120 s) before failing.</text>
+<text class="note" x="360" y="540" text-anchor="start">Each step retries VendorUnavailable with backoff (5, 10, 20 s) before failing.</text>
 <text class="note" x="360" y="562" text-anchor="start">Compensations are idempotent and retried too. Holds expire on their own,</text>
 <text class="note" x="360" y="584" text-anchor="start">so a saga that dies halfway still frees the seat and the room.</text>
 <text class="note" x="940" y="540" text-anchor="start">After the payment, confirmations are retried,</text>

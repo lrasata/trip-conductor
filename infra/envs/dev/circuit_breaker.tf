@@ -2,7 +2,7 @@
 # service's role is limited to its own vendor's item with dynamodb:LeadingKeys.
 
 locals {
-  breaker_count = local.deploy.flight ? 1 : 0
+  breaker_count = local.deploy.flight || local.deploy.hotel ? 1 : 0
 }
 
 resource "aws_dynamodb_table" "circuit_breakers" {

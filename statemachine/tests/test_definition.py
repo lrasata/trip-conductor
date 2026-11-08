@@ -11,11 +11,13 @@ DEFINITION = (
     .read_text(encoding="utf-8")
     .replace("${event_bus_name}", "bus")
     .replace("${flight_queue_url}", "https://sqs/flight")
+    .replace("${hotel_queue_url}", "https://sqs/hotel")
 )
 ASL = json.loads(DEFINITION)
 STATES = ASL["States"]
 TASKS = {name: state for name, state in STATES.items() if state["Type"] == "Task"}
 COMMANDS = {name: state for name, state in TASKS.items() if "waitForTaskToken" in state["Resource"]}
+RESERVATIONS = {"ReserveFlight": "FlightUnavailable", "ReserveHotel": "HotelUnavailable"}  # step: business error
 PUBLISHES = {name: state for name, state in TASKS.items() if "putEvents" in state["Resource"]}
 
 
@@ -40,6 +42,27 @@ def worst_case_seconds(state):
     return attempts * timeout + waits
 
 
+def longest_path_seconds(name):
+    """The slowest way from this state to the end: every task on it at its worst case."""
+    state = STATES[name]
+    own = worst_case_seconds(state) if state["Type"] == "Task" else 0
+    return own + max((longest_path_seconds(target) for target in next_states(state)), default=0)
+
+
+def caught(state):
+    return {catch["ErrorEquals"][0]: catch["Next"] for catch in state.get("Catch", [])}
+
+
+def compensation_chain(name):
+    """The task states run from here until the trip is cancelled."""
+    chain = []
+    while STATES[name]["Type"] != "Succeed":
+        if STATES[name]["Type"] == "Task":
+            chain.append(name)
+        name = STATES[name]["Next"]
+    return chain
+
+
 def test_every_target_exists_and_every_state_is_reachable():
     reachable, todo = set(), [ASL["StartAt"]]
     while todo:
@@ -60,34 +83,55 @@ def test_the_whole_saga_has_a_timeout():
     assert ASL["TimeoutSeconds"] == 900  # the lifetime of a hold
 
 
-def test_a_step_before_the_pivot_only_retries_vendor_unavailable():
-    assert retried_errors(STATES["ReserveFlight"]) == {"VendorUnavailable"}
+@pytest.mark.parametrize("name", RESERVATIONS)
+def test_a_step_before_the_pivot_only_retries_vendor_unavailable(name):
+    assert retried_errors(STATES[name]) == {"VendorUnavailable"}
 
 
-def test_vendor_unavailable_backs_off_30_60_120():
-    retry = STATES["ReserveFlight"]["Retry"][0]
+@pytest.mark.parametrize("name", COMMANDS)
+def test_vendor_unavailable_backs_off_5_10_20(name):
+    retry = STATES[name]["Retry"][0]
 
-    assert (retry["IntervalSeconds"], retry["BackoffRate"], retry["MaxAttempts"]) == (30, 2, 3)
-
-
-def test_business_errors_go_straight_to_cancellation():
-    caught = {catch["ErrorEquals"][0]: catch["Next"] for catch in STATES["ReserveFlight"]["Catch"]}
-
-    assert caught["FlightUnavailable"] == "FlightUnavailable"
-    assert STATES["FlightUnavailable"]["Next"] == "PublishTripCancelled"
+    assert (retry["IntervalSeconds"], retry["BackoffRate"], retry["MaxAttempts"]) == (5, 2, 3)
 
 
-def test_a_timed_out_reservation_is_released():
-    caught = {catch["ErrorEquals"][0]: catch["Next"] for catch in STATES["ReserveFlight"]["Catch"]}
+@pytest.mark.parametrize("name", COMMANDS)
+def test_a_service_gets_20_seconds_to_answer(name):
+    assert COMMANDS[name]["TimeoutSeconds"] == 20  # vendor calls give up after 3 s
 
-    assert STATES[caught["States.Timeout"]]["Next"] == "ReleaseFlight"
+
+@pytest.mark.parametrize(
+    "step, error, releases",
+    [
+        ("ReserveFlight", "FlightUnavailable", []),
+        ("ReserveFlight", "VendorUnavailable", []),
+        ("ReserveFlight", "States.Timeout", ["ReleaseFlight"]),
+        ("ReserveHotel", "HotelUnavailable", ["ReleaseFlight"]),
+        ("ReserveHotel", "VendorUnavailable", ["ReleaseFlight"]),
+        ("ReserveHotel", "States.Timeout", ["ReleaseHotel", "ReleaseFlight"]),
+    ],
+)
+def test_a_failed_reservation_releases_what_is_held_in_reverse(step, error, releases):
+    chain = compensation_chain(caught(STATES[step])[error])
+
+    assert chain == releases + ["PublishTripCancelled"]
 
 
-def test_a_compensation_is_retried_and_a_failed_one_fails_the_execution():
-    release = STATES["ReleaseFlight"]
+@pytest.mark.parametrize("name", ["ReleaseFlight", "ReleaseHotel"])
+def test_a_compensation_is_retried_and_a_failed_one_fails_the_execution(name):
+    release = STATES[name]
 
     assert retried_errors(release) == {"VendorUnavailable", "States.Timeout"}
     assert STATES[release["Catch"][0]["Next"]]["Type"] == "Fail"
+
+
+def test_a_release_carries_the_cancellation_reason():
+    for name in ("ReleaseFlight", "ReleaseHotel"):
+        assert COMMANDS[name]["Parameters"]["MessageBody"]["data"] == {"reason.$": "$.cancellation.reason"}
+
+
+def test_the_test_switch_releases_both_holds():
+    assert compensation_chain("TestRelease") == ["ReleaseHotel", "ReleaseFlight", "PublishTripCancelled"]
 
 
 def test_cancelling_does_not_fail_the_execution():
@@ -95,11 +139,7 @@ def test_cancelling_does_not_fail_the_execution():
 
 
 def test_the_longest_path_fits_in_the_saga_timeout():
-    release_path = worst_case_seconds(STATES["ReleaseFlight"]) + STATES["ReserveFlight"]["TimeoutSeconds"]
-    vendor_path = worst_case_seconds(STATES["ReserveFlight"])
-    publishes = sum(worst_case_seconds(state) for state in PUBLISHES.values())
-
-    assert max(release_path, vendor_path) + publishes < ASL["TimeoutSeconds"]
+    assert longest_path_seconds(ASL["StartAt"]) < ASL["TimeoutSeconds"]
 
 
 @pytest.mark.parametrize("name", COMMANDS)
@@ -133,4 +173,4 @@ def test_published_events_follow_their_schema(name, schema):
 def test_cancellation_reasons_are_the_ones_in_the_requirements():
     reasons = {state["Result"]["reason"] for state in STATES.values() if state["Type"] == "Pass"}
 
-    assert reasons - {"TEST_RELEASE"} == {"FLIGHT_UNAVAILABLE", "VENDOR_UNAVAILABLE", "TIMEOUT"}
+    assert reasons - {"TEST_RELEASE"} == {"FLIGHT_UNAVAILABLE", "HOTEL_UNAVAILABLE", "VENDOR_UNAVAILABLE", "TIMEOUT"}

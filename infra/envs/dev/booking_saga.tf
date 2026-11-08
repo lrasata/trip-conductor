@@ -3,7 +3,7 @@
 locals {
   booking_saga_service = "${local.name_prefix}-booking-saga"
   booking_saga_count   = local.deploy["booking-saga"] ? 1 : 0
-  # Built by hand: the flight service's role needs it even before the saga is deployed.
+  # Built by hand: the services' roles need it even before the saga is deployed.
   booking_saga_arn = "arn:aws:states:${var.region}:${data.aws_caller_identity.current.account_id}:stateMachine:${local.booking_saga_service}"
 }
 
@@ -25,6 +25,7 @@ resource "aws_sfn_state_machine" "booking_saga" {
   definition = templatefile("${path.root}/../../../statemachine/booking.asl.json", {
     event_bus_name   = aws_cloudwatch_event_bus.trip_events.name
     flight_queue_url = module.flight_commands[0].queue_url
+    hotel_queue_url  = module.hotel_commands[0].queue_url
   })
 
   logging_configuration {
@@ -49,7 +50,7 @@ resource "aws_cloudwatch_metric_alarm" "booking_saga" {
   } : {}
 
   alarm_name          = "${local.booking_saga_service}-${each.key}"
-  alarm_description   = "A booking saga execution ended with ${each.value}. Open it in the Step Functions console; its hold expires on its own."
+  alarm_description   = "A booking saga execution ended with ${each.value}. Open it in the Step Functions console; its holds expire on their own."
   namespace           = "AWS/States"
   metric_name         = each.value
   dimensions          = { StateMachineArn = aws_sfn_state_machine.booking_saga[0].arn }
@@ -90,7 +91,7 @@ data "aws_iam_policy_document" "booking_saga" {
   statement {
     sid       = "SendCommands"
     actions   = ["sqs:SendMessage"]
-    resources = [module.flight_commands[0].queue_arn]
+    resources = [module.flight_commands[0].queue_arn, module.hotel_commands[0].queue_arn]
   }
 
   statement {

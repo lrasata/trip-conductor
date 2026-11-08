@@ -33,5 +33,5 @@ variable "max_receive_count" {
 variable "max_message_age_seconds" {
   description = "Alarm when the oldest message in the queue is older than this."
   type        = number
-  default     = 120 # a saga task only waits 60 s for its answer
+  default     = 60 # a saga task only waits 20 s for its answer
 }

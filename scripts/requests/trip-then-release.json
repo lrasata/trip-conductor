@@ -1,6 +1,6 @@
 {
   "customer_id": "cus_demo",
   "flight": { "offer_id": "fl_lis_weekend", "passengers": 2 },
-  "hotel": { "offer_id": "ht_lis_centre" },
+  "hotel": { "offer_id": "ht_lis_centre", "check_in": "2026-12-04", "check_out": "2026-12-06", "guests": 2 },
   "release_after_reserve": true
 }
