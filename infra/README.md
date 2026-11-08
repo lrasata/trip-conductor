@@ -6,7 +6,9 @@ All AWS resources are defined in Terraform (>= 1.10, AWS provider 5.x). State li
 infra/
 ├── bootstrap/   # one-time: S3 bucket + DynamoDB lock table for Terraform state
 ├── ci/          # one-time: the CI roles and the permissions boundary
-└── envs/dev/    # the dev environment
+├── envs/dev/    # the dev environment
+└── modules/
+    └── command_queue/   # SQS queue + DLQ + alarms, per service the saga commands
 ```
 
 ## What the foundation creates
@@ -20,6 +22,30 @@ infra/
 **Expected cost:** effectively $0 while idle.
 
 Services are added one at a time, and each gets its own `<service>.tf` gated by `local.deploy`.
+
+## What the first slice adds
+
+| | Resources |
+|---|---|
+| Vendor simulator | `trip-conductor-dev-vendor-simulator` Lambda behind the public `trip-conductor-dev-vendors` HTTP API (20 requests/s, burst 40). Holds no data. Its failure settings are in the SSM parameter `/trip-conductor/dev/chaos/airline` |
+| Flight service | `trip-conductor-dev-flight` Lambda, `trip-conductor-dev-flight-commands` queue with a DLQ and alarms, `trip-conductor-dev-flight-reservations` table |
+| Circuit breakers | `trip-conductor-dev-circuit-breakers` table, one item per vendor |
+| Saga | `trip-conductor-dev-booking-saga` state machine, with alarms on failed and timed-out executions. A cancelled trip is a normal end, so it fires no alarm |
+
+### Try it
+
+Open the state machine in the Step Functions console and choose **Start execution**. The name is the trip ID, so give each run a new one (`trp_demo_001`, ...), and paste an input from [`scripts/requests/`](../scripts/requests/).
+
+| Test | Input | Expected |
+|---|---|---|
+| A flight is available | `flight-available.json` | Ends in `FlightHeld`; the trip is `HELD` in `flight-reservations` |
+| Sold out | `flight-sold-out.json` | Ends in `TripCancelled`, reason `FLIGHT_UNAVAILABLE`, no retries |
+| Release | `flight-then-release.json` | Ends in `TripCancelled`; the trip is `RELEASED` |
+| Airline down | `python scripts/chaos.py airline --failure-rate 1`, then `flight-available.json` under several names | Retries at 30, 60 and 120 s, then `VENDOR_UNAVAILABLE`. After 5 failures the `airline` item in `circuit-breakers` is `OPEN` |
+| Airline back | `python scripts/chaos.py airline`, then `flight-available.json` under a new name | Once the cool-down has passed, the breaker closes |
+| Airline slow | `python scripts/chaos.py airline --latency-ms 8000` | Calls time out after 3 s and count as failures |
+
+Events aren't visible on the bus itself: the flight service logs `event published` for each one, and the saga's are steps in its graph. `chaos.py` needs the AWS CLI and credentials allowed `ssm:PutParameter` on `/trip-conductor/*`.
 
 ## Deploy it yourself
 

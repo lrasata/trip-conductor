@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trip-conductor/events/flight-reserved.schema.json",
+  "title": "FlightReserved v1 data",
+  "type": "object",
+  "required": ["reservation_id", "hold_expires_at", "amount", "currency"],
+  "properties": {
+    "reservation_id": { "type": "string" },
+    "hold_expires_at": { "type": "string", "format": "date-time" },
+    "amount": { "type": "integer", "minimum": 0, "description": "In minor units (cents)." },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }
+  }
+}

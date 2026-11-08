@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trip-conductor/events/trip-cancelled.schema.json",
+  "title": "TripCancelled v1 data",
+  "type": "object",
+  "required": ["customer_id", "reason", "failed_step"],
+  "properties": {
+    "customer_id": { "type": "string" },
+    "reason": { "type": "string" },
+    "failed_step": { "type": "string" }
+  }
+}

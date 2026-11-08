@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trip-conductor/events/circuit-opened.schema.json",
+  "title": "CircuitOpened v1 data",
+  "type": "object",
+  "required": ["vendor", "failure_count", "opened_at"],
+  "properties": {
+    "vendor": { "type": "string" },
+    "failure_count": { "type": "integer", "minimum": 1 },
+    "opened_at": { "type": "string", "format": "date-time" }
+  }
+}

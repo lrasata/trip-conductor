@@ -2,7 +2,7 @@
 
 I wanted to practise **orchestration**: one component coordinating several services through a business transaction that must succeed as a whole, or not at all. To have something concrete to build, I imagined a scenario, split it into the problems it raises, matched each problem with a design pattern, and then looked for the AWS services to build each pattern with.
 
-> **Status:** foundation. The [requirements](docs/requirements.md), the [event and command catalog](docs/events/catalog.md), the [decisions](docs/decisions/), the [Terraform stacks and CI/CD](infra/README.md) are in place; services come next.
+> **Status:** first slice. The [requirements](docs/requirements.md), the [event and command catalog](docs/events/catalog.md), the [decisions](docs/decisions/) and the [Terraform stacks and CI/CD](infra/README.md) are in place. One flight reservation runs through the saga, the airline simulator and the circuit breaker; the hotel, payment and API steps come next.
 
 ## The scenario
 
@@ -110,7 +110,7 @@ More in [ADR 0005](docs/decisions/0005-circuit-breaker-in-dynamodb.md).
 | Risk | How it's handled |
 |---|---|
 | Client retries `POST /trips` | Clients send an `Idempotency-Key`. The trip ID is derived from customer + key and used as the execution name, so Step Functions refuses a second execution and the API returns the first one. |
-| A command is delivered twice | Each service writes its reservation with a conditional write keyed on trip ID + step; a repeat returns the stored result instead of calling the vendor again. |
+| A command is delivered twice | Each service writes its reservation with a conditional write keyed on the trip ID; a repeat returns the stored result instead of calling the vendor again. Only final results are stored, so a retry after `VendorUnavailable` really tries the vendor again. |
 | A service is down | Its command waits in its SQS queue. The saga task has a timeout, so a service that never answers fails the step and triggers compensation instead of hanging. |
 | A vendor is down | Circuit breaker fails fast; the saga retries with backoff, then compensates. |
 | A compensation fails | Retried with backoff; if it still fails, the execution ends in a failed state and an alarm fires. Holds expire on their own as the last safety net. |

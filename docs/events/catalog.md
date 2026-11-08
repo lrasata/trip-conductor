@@ -13,17 +13,19 @@ Both use the [envelope](envelope.schema.json). `correlation_id` is always the tr
 |---|---|---|---|---|
 | `ReserveFlight` | flight | `offer_id`, `passengers` | `reservation_id`, `hold_expires_at`, `amount`, `currency` | `FlightUnavailable`, `VendorUnavailable` |
 | `ConfirmFlight` | flight | `reservation_id` | `booking_reference` | `VendorUnavailable` |
-| `ReleaseFlight` | flight | `reservation_id` | `{}` | `VendorUnavailable` |
+| `ReleaseFlight` | flight | `reason` | `{}` | `VendorUnavailable` |
 | `ReserveHotel` | hotel | `offer_id`, `check_in`, `check_out`, `guests` | `reservation_id`, `hold_expires_at`, `amount`, `currency` | `HotelUnavailable`, `VendorUnavailable` |
 | `ConfirmHotel` | hotel | `reservation_id` | `booking_reference` | `VendorUnavailable` |
-| `ReleaseHotel` | hotel | `reservation_id` | `{}` | `VendorUnavailable` |
+| `ReleaseHotel` | hotel | `reason` | `{}` | `VendorUnavailable` |
 | `ChargePayment` | payment | `payment_token`, `amount`, `currency` | `payment_id` | `PaymentDeclined`, `VendorUnavailable` |
 
 The command envelope adds one field, `task_token`, outside `data`. It is never logged.
 
 `VendorUnavailable` covers both "the vendor failed" and "the circuit breaker is open". The saga retries it with backoff; the other errors are business answers and go straight to compensation.
 
-Releasing an already released or already expired hold succeeds: compensations must be idempotent.
+Releasing an already released or already expired hold succeeds: compensations must be idempotent. A release works from the trip ID (`correlation_id`), so it needs no `reservation_id`: if the reserve step timed out, a hold may exist that the saga never heard about. Without a reservation, the service leaves a mark that makes a late reserve command give its hold back, and publishes no event.
+
+Amounts are integers in minor units (cents).
 
 ## Events
 
@@ -52,4 +54,4 @@ On EventBridge the envelope is the event's `detail`, `detail-type` is the `messa
 
 Same rules as Apply Relay: within a version, only add optional fields, and consumers tolerate their absence. Anything else is a new `message_version`, and consumers reject versions they don't know. The projector is the strictest consumer because it also reads *old* events during a replay.
 
-Per-event JSON Schemas are added next to this file as each service is built, and contract tests validate published messages against them.
+Per-event JSON Schemas for `data` are added next to this file as each service is built, and contract tests validate published messages against them.
