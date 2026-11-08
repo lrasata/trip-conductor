@@ -179,6 +179,14 @@ data "aws_iam_policy_document" "deploy" {
     resources = ["arn:aws:states:${var.region}:${local.account_id}:execution:${local.prefix}-*"]
   }
 
+  # The provider validates a definition before creating a machine. AWS checks this against
+  # stateMachine:*, not a named machine, and it only reads the document it's given.
+  statement {
+    sid       = "ValidateStateMachines"
+    actions   = ["states:ValidateStateMachineDefinition"]
+    resources = ["arn:aws:states:${var.region}:${local.account_id}:stateMachine:*"]
+  }
+
   statement {
     sid       = "SavedLogQueries" # query definitions have random IDs
     actions   = ["logs:PutQueryDefinition", "logs:DeleteQueryDefinition", "logs:DescribeQueryDefinitions"]
