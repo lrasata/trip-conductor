@@ -1,12 +1,19 @@
-# The vendor simulator: stands in for the airline and the hotel provider, and later the payment provider.
+# The vendor simulator: stands in for the airline, the hotel provider and the payment provider.
 # API Gateway -> Lambda. It holds no data, so it's public, with a throttle as its protection.
 
 locals {
   vendor_simulator_service = "${local.name_prefix}-vendor-simulator"
   vendor_simulator_count   = local.deploy["vendor-simulator"] ? 1 : 0
-  vendors                  = ["airline", "hotel"]
-  vendor_routes            = flatten([for vendor in local.vendors : ["POST /${vendor}/holds", "DELETE /${vendor}/holds/{reference}"]])
-  chaos_parameter_prefix   = "/trip-conductor/${var.environment}/chaos/"
+  vendors                  = ["airline", "hotel", "payment"]
+  vendor_routes = concat(
+    flatten([for vendor in ["airline", "hotel"] : [
+      "POST /${vendor}/holds",
+      "DELETE /${vendor}/holds/{reference}",
+      "POST /${vendor}/holds/{reference}/confirm",
+    ]]),
+    ["POST /payment/charges"],
+  )
+  chaos_parameter_prefix = "/trip-conductor/${var.environment}/chaos/"
 }
 
 # One parameter per vendor. scripts/chaos.py writes them; Terraform only creates them.

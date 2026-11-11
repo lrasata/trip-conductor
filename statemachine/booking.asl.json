@@ -1,5 +1,5 @@
 {
-  "Comment": "The booking saga, up to the hotel: reserve the flight, then the hotel, or release what's held in reverse. The trip ID is the execution name.",
+  "Comment": "The booking saga: reserve the flight and the hotel, charge the payment, then confirm both. Before the payment a failure releases what's held, in reverse; after it, the saga only moves forward. The trip ID is the execution name.",
   "StartAt": "PublishTripRequested",
   "TimeoutSeconds": 900,
   "States": {
@@ -57,10 +57,7 @@
           "correlation_id.$": "$$.Execution.Name",
           "producer": "booking-saga",
           "task_token.$": "$$.Task.Token",
-          "data": {
-            "offer_id.$": "$.flight.offer_id",
-            "passengers.$": "$.flight.passengers"
-          }
+          "data": { "offer_id.$": "$.flight.offer_id", "passengers.$": "$.flight.passengers" }
         }
       },
       "ResultPath": "$.flight_reservation",
@@ -160,7 +157,7 @@
           "Next": "ReserveHotelTimedOut"
         }
       ],
-      "Next": "ReleaseForTesting"
+      "Next": "ChargePayment"
     },
     "HotelUnavailable": {
       "Type": "Pass",
@@ -181,29 +178,245 @@
       "ResultPath": "$.cancellation",
       "Next": "ReleaseHotel"
     },
-    "ReleaseForTesting": {
-      "Comment": "Temporary: nothing releases both holds until the payment step exists.",
-      "Type": "Choice",
-      "Choices": [
+    "ChargePayment": {
+      "Comment": "The pivot. The trip ID is the provider's idempotency key, so retrying after a timeout can't charge twice.",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+      "TimeoutSeconds": 20,
+      "Parameters": {
+        "QueueUrl": "${payment_queue_url}",
+        "MessageBody": {
+          "message_id.$": "States.UUID()",
+          "message_kind": "command",
+          "message_type": "ChargePayment",
+          "message_version": 1,
+          "occurred_at.$": "$$.State.EnteredTime",
+          "correlation_id.$": "$$.Execution.Name",
+          "producer": "booking-saga",
+          "task_token.$": "$$.Task.Token",
+          "data": {
+            "payment_token.$": "$.payment_token",
+            "amount.$": "States.MathAdd($.flight_reservation.amount, $.hotel_reservation.amount)",
+            "currency.$": "$.flight_reservation.currency"
+          }
+        }
+      },
+      "ResultPath": "$.payment",
+      "Retry": [
         {
-          "And": [
-            { "Variable": "$.release_after_reserve", "IsPresent": true },
-            { "Variable": "$.release_after_reserve", "BooleanEquals": true }
-          ],
-          "Next": "TestRelease"
+          "ErrorEquals": ["VendorUnavailable", "States.Timeout"],
+          "IntervalSeconds": 5,
+          "BackoffRate": 2,
+          "MaxAttempts": 3
         }
       ],
-      "Default": "TripHeld"
+      "Catch": [
+        {
+          "ErrorEquals": ["PaymentDeclined"],
+          "ResultPath": "$.error",
+          "Next": "PaymentDeclined"
+        },
+        {
+          "ErrorEquals": ["VendorUnavailable"],
+          "ResultPath": "$.error",
+          "Next": "PaymentProviderUnavailable"
+        },
+        {
+          "ErrorEquals": ["States.Timeout"],
+          "ResultPath": "$.error",
+          "Next": "PaymentOutcomeUnknown"
+        }
+      ],
+      "Next": "ConfirmBooking"
     },
-    "TripHeld": {
-      "Comment": "Temporary end of the saga: the holds expire on their own.",
-      "Type": "Succeed"
-    },
-    "TestRelease": {
+    "PaymentDeclined": {
       "Type": "Pass",
-      "Result": { "reason": "TEST_RELEASE", "failed_step": "ReleaseForTesting" },
+      "Result": { "reason": "PAYMENT_DECLINED", "failed_step": "ChargePayment" },
       "ResultPath": "$.cancellation",
       "Next": "ReleaseHotel"
+    },
+    "PaymentProviderUnavailable": {
+      "Comment": "The provider answered nothing but failures, so nothing was charged: release both holds.",
+      "Type": "Pass",
+      "Result": { "reason": "VENDOR_UNAVAILABLE", "failed_step": "ChargePayment" },
+      "ResultPath": "$.cancellation",
+      "Next": "ReleaseHotel"
+    },
+    "PaymentOutcomeUnknown": {
+      "Comment": "No answer at all: the card may have been charged. A person checks before anything is released.",
+      "Type": "Pass",
+      "Parameters": { "failed_step": "ChargePayment", "error.$": "$.error.Error" },
+      "ResultPath": "$.attention",
+      "Next": "PublishTripNeedsAttention"
+    },
+    "ConfirmBooking": {
+      "Comment": "After the pivot: retried, never compensated.",
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "ConfirmFlight",
+          "States": {
+            "ConfirmFlight": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+              "TimeoutSeconds": 20,
+              "Parameters": {
+                "QueueUrl": "${flight_queue_url}",
+                "MessageBody": {
+                  "message_id.$": "States.UUID()",
+                  "message_kind": "command",
+                  "message_type": "ConfirmFlight",
+                  "message_version": 1,
+                  "occurred_at.$": "$$.State.EnteredTime",
+                  "correlation_id.$": "$$.Execution.Name",
+                  "producer": "booking-saga",
+                  "task_token.$": "$$.Task.Token",
+                  "data": { "reservation_id.$": "$.flight_reservation.reservation_id" }
+                }
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": ["VendorUnavailable", "States.Timeout"],
+                  "IntervalSeconds": 5,
+                  "BackoffRate": 2,
+                  "MaxAttempts": 3
+                }
+              ],
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "ConfirmHotel",
+          "States": {
+            "ConfirmHotel": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+              "TimeoutSeconds": 20,
+              "Parameters": {
+                "QueueUrl": "${hotel_queue_url}",
+                "MessageBody": {
+                  "message_id.$": "States.UUID()",
+                  "message_kind": "command",
+                  "message_type": "ConfirmHotel",
+                  "message_version": 1,
+                  "occurred_at.$": "$$.State.EnteredTime",
+                  "correlation_id.$": "$$.Execution.Name",
+                  "producer": "booking-saga",
+                  "task_token.$": "$$.Task.Token",
+                  "data": { "reservation_id.$": "$.hotel_reservation.reservation_id" }
+                }
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": ["VendorUnavailable", "States.Timeout"],
+                  "IntervalSeconds": 5,
+                  "BackoffRate": 2,
+                  "MaxAttempts": 3
+                }
+              ],
+              "End": true
+            }
+          }
+        }
+      ],
+      "ResultPath": "$.confirmations",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ConfirmationFailed"
+        }
+      ],
+      "Next": "PublishTripConfirmed"
+    },
+    "ConfirmationFailed": {
+      "Comment": "The customer has paid: no automatic refund. A person finishes the booking.",
+      "Type": "Pass",
+      "Parameters": { "failed_step": "ConfirmBooking", "error.$": "$.error.Error" },
+      "ResultPath": "$.attention",
+      "Next": "PublishTripNeedsAttention"
+    },
+    "PublishTripConfirmed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::events:putEvents",
+      "TimeoutSeconds": 10,
+      "Parameters": {
+        "Entries": [
+          {
+            "EventBusName": "${event_bus_name}",
+            "Source": "trip-conductor.booking-saga",
+            "DetailType": "TripConfirmed",
+            "Detail": {
+              "message_id.$": "States.UUID()",
+              "message_kind": "event",
+              "message_type": "TripConfirmed",
+              "message_version": 1,
+              "occurred_at.$": "$$.State.EnteredTime",
+              "correlation_id.$": "$$.Execution.Name",
+              "producer": "booking-saga",
+              "data": {
+                "customer_id.$": "$.customer_id",
+                "flight_booking_reference.$": "$.confirmations[0].booking_reference",
+                "hotel_booking_reference.$": "$.confirmations[1].booking_reference",
+                "total_amount.$": "States.MathAdd($.flight_reservation.amount, $.hotel_reservation.amount)",
+                "currency.$": "$.flight_reservation.currency"
+              }
+            }
+          }
+        ]
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxAttempts": 3
+        }
+      ],
+      "Next": "TripConfirmed"
+    },
+    "TripConfirmed": { "Type": "Succeed" },
+    "PublishTripNeedsAttention": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::events:putEvents",
+      "TimeoutSeconds": 10,
+      "Parameters": {
+        "Entries": [
+          {
+            "EventBusName": "${event_bus_name}",
+            "Source": "trip-conductor.booking-saga",
+            "DetailType": "TripNeedsAttention",
+            "Detail": {
+              "message_id.$": "States.UUID()",
+              "message_kind": "event",
+              "message_type": "TripNeedsAttention",
+              "message_version": 1,
+              "occurred_at.$": "$$.State.EnteredTime",
+              "correlation_id.$": "$$.Execution.Name",
+              "producer": "booking-saga",
+              "data": { "failed_step.$": "$.attention.failed_step", "error.$": "$.attention.error" }
+            }
+          }
+        ]
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 2,
+          "BackoffRate": 2,
+          "MaxAttempts": 3
+        }
+      ],
+      "Next": "NeedsAttention"
+    },
+    "NeedsAttention": {
+      "Comment": "A failed execution fires the alarm.",
+      "Type": "Fail",
+      "Error": "NeedsAttention",
+      "Cause": "The trip is paid for but couldn't be completed, or the payment's outcome is unknown."
     },
     "ReleaseHotel": {
       "Type": "Task",
@@ -220,9 +433,7 @@
           "correlation_id.$": "$$.Execution.Name",
           "producer": "booking-saga",
           "task_token.$": "$$.Task.Token",
-          "data": {
-            "reason.$": "$.cancellation.reason"
-          }
+          "data": { "reason.$": "$.cancellation.reason" }
         }
       },
       "ResultPath": null,
@@ -258,9 +469,7 @@
           "correlation_id.$": "$$.Execution.Name",
           "producer": "booking-saga",
           "task_token.$": "$$.Task.Token",
-          "data": {
-            "reason.$": "$.cancellation.reason"
-          }
+          "data": { "reason.$": "$.cancellation.reason" }
         }
       },
       "ResultPath": null,

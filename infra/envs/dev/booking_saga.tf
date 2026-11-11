@@ -23,9 +23,10 @@ resource "aws_sfn_state_machine" "booking_saga" {
   type     = "STANDARD"
 
   definition = templatefile("${path.root}/../../../statemachine/booking.asl.json", {
-    event_bus_name   = aws_cloudwatch_event_bus.trip_events.name
-    flight_queue_url = module.flight_commands[0].queue_url
-    hotel_queue_url  = module.hotel_commands[0].queue_url
+    event_bus_name    = aws_cloudwatch_event_bus.trip_events.name
+    flight_queue_url  = module.flight_commands[0].queue_url
+    hotel_queue_url   = module.hotel_commands[0].queue_url
+    payment_queue_url = module.payment_commands[0].queue_url
   })
 
   logging_configuration {
@@ -41,8 +42,9 @@ resource "aws_sfn_state_machine" "booking_saga" {
 
 # ---------------------------------------------------------------- alarms
 
-# A cancelled trip ends the execution normally, so these only fire on real trouble: a
-# compensation that kept failing, or a saga that hit its own timeout.
+# A cancelled trip ends the execution normally, so these only fire on real trouble: a trip
+# that needs attention (paid but not booked), a compensation that kept failing, or a saga
+# that hit its own timeout.
 resource "aws_cloudwatch_metric_alarm" "booking_saga" {
   for_each = local.booking_saga_count == 1 ? {
     failed    = "ExecutionsFailed"
@@ -50,7 +52,7 @@ resource "aws_cloudwatch_metric_alarm" "booking_saga" {
   } : {}
 
   alarm_name          = "${local.booking_saga_service}-${each.key}"
-  alarm_description   = "A booking saga execution ended with ${each.value}. Open it in the Step Functions console; its holds expire on their own."
+  alarm_description   = "A booking saga execution ended with ${each.value}. Open it in the Step Functions console: NeedsAttention means the customer paid and the booking must be finished by hand."
   namespace           = "AWS/States"
   metric_name         = each.value
   dimensions          = { StateMachineArn = aws_sfn_state_machine.booking_saga[0].arn }
@@ -91,7 +93,7 @@ data "aws_iam_policy_document" "booking_saga" {
   statement {
     sid       = "SendCommands"
     actions   = ["sqs:SendMessage"]
-    resources = [module.flight_commands[0].queue_arn, module.hotel_commands[0].queue_arn]
+    resources = [module.flight_commands[0].queue_arn, module.hotel_commands[0].queue_arn, module.payment_commands[0].queue_arn]
   }
 
   statement {

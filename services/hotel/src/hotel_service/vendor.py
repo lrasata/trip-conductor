@@ -55,6 +55,14 @@ def place_hold(trip_id: str, offer_id: str, check_in: str, check_out: str, guest
     }
 
 
+def confirm_hold(trip_id: str) -> str:
+    """The booking reference. Confirming twice gives the same one."""
+    status, body = _request("POST", f"/hotel/holds/{trip_id}/confirm", trip_id)
+    if status != 200:
+        raise ValueError(f"unexpected answer from the hotel provider: {status}")
+    return body["booking_reference"]
+
+
 def release_hold(trip_id: str) -> None:
     status, _ = _request("DELETE", f"/hotel/holds/{trip_id}", trip_id)
     if status != 204:

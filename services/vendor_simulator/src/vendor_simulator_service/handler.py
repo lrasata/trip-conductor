@@ -1,15 +1,20 @@
 """Lambda entry point: the vendors' HTTP API (API Gateway HTTP API).
 
-    POST   /airline/holds              place a seat hold; Idempotency-Key is the caller's reference
-    DELETE /airline/holds/{reference}  release the hold placed with that reference
-    POST   /hotel/holds                place a room hold
+    POST   /airline/holds                      place a seat hold; Idempotency-Key is the caller's reference
+    DELETE /airline/holds/{reference}          release the hold placed with that reference
+    POST   /airline/holds/{reference}/confirm  turn the hold into a booking
+    POST   /hotel/holds                        the same for rooms
     DELETE /hotel/holds/{reference}
+    POST   /hotel/holds/{reference}/confirm
+    POST   /payment/charges                    charge a card; Idempotency-Key is the caller's reference
 
 Stands in for the real vendors and can be told to misbehave, one vendor at a time, with
-`scripts/chaos.py`, which writes that vendor's settings to an SSM parameter. They are cached
-for a few seconds, so a busy simulator doesn't turn into a busy SSM.
+`scripts/chaos.py`, which writes that vendor's settings to an SSM parameter. `operations`
+limits the chaos to some calls (hold, release, confirm, charge), e.g. only confirmations. The
+settings are cached for a few seconds, so a busy simulator doesn't turn into a busy SSM.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -19,11 +24,11 @@ from functools import lru_cache
 
 import boto3
 
-from vendor_simulator_service import airline, hotel
+from vendor_simulator_service import airline, hotel, payment
 
 SERVICE = "vendor-simulator"
 CHAOS_CACHE_SECONDS = 5
-NO_CHAOS = {"failure_rate": 0, "latency_ms": 0}
+NO_CHAOS = {"failure_rate": 0, "latency_ms": 0, "operations": None}  # None: every operation
 
 logger = logging.getLogger()
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
@@ -79,8 +84,12 @@ def _hotel_hold(reference: str, request: dict) -> dict | None:
 PLACE_HOLD = {"airline": _airline_hold, "hotel": _hotel_hold}
 
 
+def _idempotency_key(event: dict) -> str | None:
+    return event.get("headers", {}).get("idempotency-key")
+
+
 def _place_hold(vendor: str, event: dict) -> dict:
-    reference = event.get("headers", {}).get("idempotency-key")
+    reference = _idempotency_key(event)
     if not reference:
         return _response(400, {"error": "missing_idempotency_key"})
 
@@ -98,22 +107,65 @@ def _place_hold(vendor: str, event: dict) -> dict:
     return _response(201, hold)
 
 
+def _release_hold(vendor: str, event: dict) -> dict:
+    _log(logging.INFO, "hold released", vendor=vendor, correlation_id=event["pathParameters"]["reference"])
+    return _response(204)
+
+
+def _confirm_hold(vendor: str, event: dict) -> dict:
+    """Always succeeds: holds aren't stored, so an expired one can't be told apart."""
+    reference = event["pathParameters"]["reference"]
+    digest = hashlib.sha256(f"{vendor}:{reference}".encode()).hexdigest()[:8].upper()
+    booking_reference = f"{vendor[:2].upper()}-{digest}"
+    _log(logging.INFO, "hold confirmed", vendor=vendor, correlation_id=reference, booking_reference=booking_reference)
+    return _response(200, {"booking_reference": booking_reference})
+
+
+def _charge(vendor: str, event: dict) -> dict:
+    reference = _idempotency_key(event)
+    if not reference:
+        return _response(400, {"error": "missing_idempotency_key"})
+
+    try:
+        request = json.loads(event.get("body") or "")
+        charge, decline_code = payment.charge(
+            reference, request["payment_token"], int(request["amount"]), request["currency"]
+        )
+    except (ValueError, KeyError, TypeError):
+        return _response(400, {"error": "invalid_request"})
+
+    # The token is the card: it's never logged.
+    if charge is None:
+        _log(logging.INFO, "charge declined", vendor=vendor, correlation_id=reference, decline_code=decline_code)
+        return _response(402, {"error": "declined", "decline_code": decline_code})
+
+    _log(logging.INFO, "charged", vendor=vendor, correlation_id=reference, charge_id=charge["charge_id"])
+    return _response(201, charge)
+
+
+# route -> (vendor, operation, what answers it)
+ROUTES = {
+    "POST /airline/holds": ("airline", "hold", _place_hold),
+    "DELETE /airline/holds/{reference}": ("airline", "release", _release_hold),
+    "POST /airline/holds/{reference}/confirm": ("airline", "confirm", _confirm_hold),
+    "POST /hotel/holds": ("hotel", "hold", _place_hold),
+    "DELETE /hotel/holds/{reference}": ("hotel", "release", _release_hold),
+    "POST /hotel/holds/{reference}/confirm": ("hotel", "confirm", _confirm_hold),
+    "POST /payment/charges": ("payment", "charge", _charge),
+}
+
+
 def handler(event: dict, context: object) -> dict:
-    method, _, path = event.get("routeKey", "").partition(" ")
-    vendor = path.split("/")[1] if path.count("/") > 1 else ""
-    if vendor not in PLACE_HOLD:
+    route = ROUTES.get(event.get("routeKey", ""))
+    if route is None:
         return _response(404, {"error": "not_found"})
+    vendor, operation, answer = route
 
     chaos = _chaos_settings(vendor)
-    if chaos["latency_ms"]:
-        time.sleep(chaos["latency_ms"] / 1000)
-    if random.random() < chaos["failure_rate"]:
-        return _response(503, {"error": "chaos"})
+    if chaos["operations"] is None or operation in chaos["operations"]:
+        if chaos["latency_ms"]:
+            time.sleep(chaos["latency_ms"] / 1000)
+        if random.random() < chaos["failure_rate"]:
+            return _response(503, {"error": "chaos"})
 
-    if path == f"/{vendor}/holds" and method == "POST":
-        return _place_hold(vendor, event)
-    if path == f"/{vendor}/holds/{{reference}}" and method == "DELETE":
-        reference = event["pathParameters"]["reference"]
-        _log(logging.INFO, "hold released", vendor=vendor, correlation_id=reference)
-        return _response(204)
-    return _response(404, {"error": "not_found"})
+    return answer(vendor, event)

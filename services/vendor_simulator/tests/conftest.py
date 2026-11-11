@@ -27,7 +27,7 @@ def aws(monkeypatch):
             ssm.put_parameter(Name=PREFIX + vendor, Type="String", Overwrite=True, Value=json.dumps(settings))
             handler_module._chaos_cache.clear()
 
-        for vendor in ("airline", "hotel"):
+        for vendor in ("airline", "hotel", "payment"):
             set_chaos(vendor, failure_rate=0, latency_ms=0)
         yield set_chaos
 
@@ -48,3 +48,15 @@ def room_hold_request(offer_id="ht_lis_centre", check_in="2026-12-04", check_out
         "headers": {"idempotency-key": "trp_123"},
         "body": json.dumps({"offer_id": offer_id, "check_in": check_in, "check_out": check_out, "guests": guests}),
     }
+
+
+def charge_request(payment_token="tok_visa", amount=61800, currency="EUR", reference="trp_123"):
+    return {
+        "routeKey": "POST /payment/charges",
+        "headers": {"idempotency-key": reference} if reference else {},
+        "body": json.dumps({"payment_token": payment_token, "amount": amount, "currency": currency}),
+    }
+
+
+def confirm_request(vendor="airline", reference="trp_123"):
+    return {"routeKey": f"POST /{vendor}/holds/{{reference}}/confirm", "pathParameters": {"reference": reference}}

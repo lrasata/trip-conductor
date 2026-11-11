@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trip-conductor/events/payment-declined.schema.json",
+  "title": "PaymentDeclined v1 data",
+  "type": "object",
+  "required": ["decline_code"],
+  "properties": {
+    "decline_code": { "type": "string" }
+  }
+}

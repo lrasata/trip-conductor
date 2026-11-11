@@ -42,7 +42,7 @@ Each scenario is reproducible with `scripts/chaos.py` and a request in `scripts/
 | D3 | Card declined (`tok_declined`) | Hotel then flight released, `CANCELLED / PAYMENT_DECLINED` |
 | D4 | Airline down (`chaos.py airline --failure-rate 1`) | Breaker opens after 5 failures, later bookings fail fast, `CircuitOpened` alarm. After `--failure-rate 0`, a probe closes the breaker. |
 | D5 | Airline slow (`--latency-ms 8000`) | Calls time out, count as failures, same as D4 |
-| D6 | Hotel confirmation fails after payment | Retried; after the budget, `NEEDS_ATTENTION` + alarm |
+| D6 | Hotel confirmation fails after payment (`chaos.py hotel --failure-rate 1 --operations confirm`) | Retried; after the budget, `NEEDS_ATTENTION` + alarm |
 | D7 | Same `POST` sent twice | One execution, same trip ID returned twice |
 | D8 | Rebuild the read model | Same `GET` responses before and after |
 

@@ -31,3 +31,8 @@ output "hotel_commands_dlq_url" {
   description = "Where hotel commands end up after 3 failed attempts."
   value       = one(module.hotel_commands[*].dlq_url)
 }
+
+output "payment_commands_dlq_url" {
+  description = "Where payment commands end up after 3 failed attempts."
+  value       = one(module.payment_commands[*].dlq_url)
+}

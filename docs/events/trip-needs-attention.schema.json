@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trip-conductor/events/trip-needs-attention.schema.json",
+  "title": "TripNeedsAttention v1 data",
+  "type": "object",
+  "required": ["failed_step", "error"],
+  "properties": {
+    "failed_step": { "type": "string" },
+    "error": { "type": "string" }
+  }
+}

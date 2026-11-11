@@ -10,6 +10,7 @@ HELD = "HELD"
 UNAVAILABLE = "UNAVAILABLE"
 RELEASING = "RELEASING"  # marked before calling the vendor, so a late ReserveHotel can see it
 RELEASED = "RELEASED"
+CONFIRMED = "CONFIRMED"  # after the payment: never released
 
 RECORD_TTL_SECONDS = 86400  # outlives every redelivery; the hold itself expires at the vendor
 
@@ -47,6 +48,6 @@ def reserved_data(item: dict) -> dict:
 
 def reserve_answer(item: dict) -> Answer:
     """Also answers a late command: a released reservation can no longer be held."""
-    if item["status"] == HELD:
+    if item["status"] in (HELD, CONFIRMED):
         return Answer(output=reserved_data(item))
     return Answer(error="HotelUnavailable")

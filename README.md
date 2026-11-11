@@ -2,7 +2,20 @@
 
 I wanted to practise **orchestration**: one component coordinating several services through a business transaction that must succeed as a whole, or not at all. To have something concrete to build, I imagined a scenario, split it into the problems it raises, matched each problem with a design pattern, and then looked for the AWS services to build each pattern with.
 
-> **Status:** flight and hotel. The [requirements](docs/requirements.md), the [event and command catalog](docs/events/catalog.md), the [decisions](docs/decisions/) and the [Terraform stacks and CI/CD](infra/README.md) are in place. The saga reserves a flight, then a hotel, through the vendor simulator and the circuit breakers, and releases them in reverse when a step fails; the payment and API steps come next.
+> **Status:** the booking transaction works end to end: the saga reserves a flight and a hotel, charges the payment, then confirms both, and releases in reverse when a step before the payment fails. Bookings are started from the Step Functions console for now; the API, the read model and the notifications come next.
+
+| Part | State |
+|---|---|
+| [Requirements](docs/requirements.md), [command and event catalog](docs/events/catalog.md), [decisions](docs/decisions/) | written |
+| [Terraform stacks and CI/CD](infra/README.md) (OIDC, plan on pull requests, deploy on `main`) | built |
+| Booking saga ([`statemachine/`](statemachine/)): reserve, charge, confirm, compensate, `NeedsAttention` | built |
+| [Flight](services/flight/), [hotel](services/hotel/) and [payment](services/payment/) services, each behind a [circuit breaker](libs/circuit_breaker/) | built |
+| [Vendor simulator](services/vendor_simulator/) with chaos settings per vendor and operation | built |
+| `POST /trips` (trip-commands) | next |
+| Projector, `trip-view` and `GET /trips` (CQRS) | planned |
+| Notifications, `CircuitOpened` alarm, read model rebuild | planned |
+
+To try it, follow [Try it](infra/README.md#try-it).
 
 ## The scenario
 
@@ -61,12 +74,12 @@ Every queue has a dead-letter queue and an alarm. The diagrams are drawn by `doc
 |---|---|---|---|---|
 | 1 | Reserve flight (seat hold, 15 min) | flight | Release flight | compensatable |
 | 2 | Reserve hotel (room hold, 15 min) | hotel | Release hotel | compensatable |
-| 3 | Charge payment | payment | (none needed: if it fails, nothing was charged) | **pivot** |
+| 3 | Charge payment (sum of both holds) | payment | none needed: if it fails, nothing was charged | **pivot** |
 | 4 | Confirm flight + hotel (in parallel) | flight, hotel | none: retried until it succeeds | retriable |
 
 Two saga ideas are worth calling out:
 
-* **The pivot.** Before the payment, every step can be undone. After it, the saga only moves forward: confirmations are retried, never compensated, because refunding a customer whose booking is one retry away from succeeding is the worse outcome. If confirmations still fail after the retry budget, the trip goes to `NeedsAttention` and an alarm fires: a person decides.
+* **The pivot.** Before the payment, every step can be undone. After it, the saga only moves forward: confirmations are retried, never compensated, because refunding a customer whose booking is one retry away from succeeding is the worse outcome. If confirmations still fail after the retry budget, the trip goes to `NeedsAttention` and an alarm fires: a person decides. The same happens if the charge itself never gets an answer: the card may have been charged, so nothing is released before a person checks.
 * **Holds instead of bookings.** Steps 1 and 2 place *holds* that expire on their own. If the whole saga died mid-flight, the inventory frees itself; compensation is the fast path, expiry is the safety net.
 
 Compensations are steps too: idempotent, retried, and if they still fail, they alarm instead of being silently dropped.
@@ -80,7 +93,7 @@ The vendor simulator stands in for an airline, a hotel provider and a payment pr
 * **Why DynamoDB and not memory:** a Lambda function runs as many concurrent instances. An in-memory breaker in each one would only see its own failures, so the vendor would keep getting hammered by the others. A shared record lets one instance's failures protect all of them.
 * **What counts as a failure:** timeouts, 5xx and connection errors. A business "no" (room unavailable, card declined) means the vendor is healthy and doesn't count.
 * **Open means fail fast:** the service returns `VendorUnavailable` to the saga without calling the vendor. The state machine retries that error with backoff (5 s, 10 s, 20 s); if the vendor is still down, it compensates and cancels with a clear reason instead of waiting forever.
-* Opening and closing the breaker publishes `CircuitOpened` / `CircuitClosed` and raises an alarm.
+* Opening and closing the breaker publishes `CircuitOpened` / `CircuitClosed`. An alarm on `CircuitOpened` is planned.
 
 More in [ADR 0005](docs/decisions/0005-circuit-breaker-in-dynamodb.md).
 
@@ -115,6 +128,7 @@ More in [ADR 0005](docs/decisions/0005-circuit-breaker-in-dynamodb.md).
 | A vendor is down | Circuit breaker fails fast; the saga retries with backoff, then compensates. |
 | A compensation fails | Retried with backoff; if it still fails, the execution ends in a failed state and an alarm fires. Holds expire on their own as the last safety net. |
 | Confirmation fails after payment | Forward recovery: retried, then `NeedsAttention` + alarm. No automatic refund. |
+| The charge gets no answer | Retried: the trip ID is the provider's idempotency key, so a retry can't charge twice. Still no answer: `NeedsAttention`, holds kept, a person checks. |
 | A hold expires before it's confirmed | The hold lifetime (15 min) is longer than the saga's worst case to reach confirmation, all retries included. A test on the state machine definition checks this budget. |
 | Events arrive out of order at the projector | Per-leg updates are independent, terminal statuses win, and every applied `message_id` is recorded so replays are no-ops. |
 

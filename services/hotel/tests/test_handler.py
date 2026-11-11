@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from botocore.exceptions import ClientError
 from circuit_breaker import VendorFailure
-from conftest import HOLD, TOKEN, release, reserve, sqs_event
+from conftest import HOLD, TOKEN, confirm, release, reserve, sqs_event
 from jsonschema import Draft202012Validator
 
 from hotel_service.handler import handler
@@ -241,6 +241,68 @@ def test_a_release_during_a_reserve_gives_the_hold_back(aws):
     assert aws["vendor"].released == ["trp_123", "trp_123"]  # the release, then the late hold
     answers_failure(aws, "HotelUnavailable")
     assert aws["published"]() == []
+
+
+# ---------------------------------------------------------------- ConfirmHotel
+
+
+def test_confirm_books_the_hold_and_publishes(aws):
+    run(reserve())
+
+    result = run(confirm())
+
+    assert result == {"batchItemFailures": []}
+    assert stored(aws)["status"] == "CONFIRMED"
+    assert json.loads(aws["sfn"].send_task_success.call_args.kwargs["output"]) == {"booking_reference": "HO-0A1B2C3D"}
+    event = aws["published"]()[-1]
+    assert event["message_type"] == "HotelConfirmed"
+    assert event["data"] == {"reservation_id": HOLD["reservation_id"], "booking_reference": "HO-0A1B2C3D"}
+    validate(event, "hotel-confirmed")
+
+
+def test_a_redelivered_confirm_returns_the_stored_booking(aws):
+    run(reserve())
+    run(confirm())
+    run(confirm(token="redelivered"))
+
+    assert aws["vendor"].confirmed == ["trp_123"]
+    assert aws["sfn"].send_task_success.call_args.kwargs["taskToken"] == "redelivered"
+    assert [event["message_type"] for event in aws["published"]()] == ["HotelReserved", "HotelConfirmed"]
+
+
+def test_confirm_retries_after_the_hotel_provider_comes_back(aws):
+    run(reserve())
+    aws["vendor"].failure = VendorFailure("503")
+
+    run(confirm())
+
+    assert stored(aws)["status"] == "HELD"
+    answers_failure(aws, "VendorUnavailable")
+
+    aws["vendor"].failure = None
+    run(confirm(token="retry"))
+
+    assert stored(aws)["status"] == "CONFIRMED"
+
+
+@pytest.mark.parametrize("hold", [None, HOLD], ids=["sold out", "nothing reserved"])
+def test_only_a_held_reservation_can_be_confirmed(aws, hold):
+    if hold is None:
+        aws["vendor"].hold = None
+        run(reserve())
+
+    assert run(confirm()) == {"batchItemFailures": [{"itemIdentifier": "msg-0"}]}
+    assert aws["vendor"].confirmed == []
+
+
+def test_a_late_reserve_after_confirming_answers_the_hold(aws):
+    run(reserve())
+    run(confirm())
+
+    run(reserve(token="late"))
+
+    assert aws["sfn"].send_task_success.call_args.kwargs["taskToken"] == "late"
+    assert len(aws["vendor"].placed) == 1
 
 
 # ---------------------------------------------------------------- the batch
