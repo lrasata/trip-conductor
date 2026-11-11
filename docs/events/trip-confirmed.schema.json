@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trip-conductor/events/trip-confirmed.schema.json",
+  "title": "TripConfirmed v1 data",
+  "type": "object",
+  "required": ["customer_id", "flight_booking_reference", "hotel_booking_reference", "total_amount", "currency"],
+  "properties": {
+    "customer_id": { "type": "string" },
+    "flight_booking_reference": { "type": "string" },
+    "hotel_booking_reference": { "type": "string" },
+    "total_amount": { "type": "integer", "minimum": 1, "description": "In minor units (cents)." },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }
+  }
+}

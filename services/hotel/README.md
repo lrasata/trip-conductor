@@ -4,8 +4,8 @@ Holds and releases rooms with the hotel provider, on the saga's command.
 
 | | |
 |---|---|
-| **Listens to** | `ReserveHotel`, `ReleaseHotel` on the `hotel-commands` queue. `ConfirmHotel` comes with the pivot |
-| **Publishes** | `HotelReserved`, `HotelReleased`, `CircuitOpened`, `CircuitClosed` |
+| **Listens to** | `ReserveHotel`, `ConfirmHotel`, `ReleaseHotel` on the `hotel-commands` queue |
+| **Publishes** | `HotelReserved`, `HotelConfirmed`, `HotelReleased`, `CircuitOpened`, `CircuitClosed` |
 | **Owns** | `hotel-reservations` table, the `hotel` item in `circuit-breakers` |
 
 ## What it does

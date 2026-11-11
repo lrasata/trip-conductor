@@ -25,6 +25,7 @@ class FakeVendor:
         self.failure = None
         self.placed = []
         self.released = []
+        self.confirmed = []
         self.before_answering = lambda: None
 
     def place_hold(self, trip_id, offer_id, check_in, check_out, guests):
@@ -33,6 +34,12 @@ class FakeVendor:
         if self.failure:
             raise self.failure
         return self.hold
+
+    def confirm_hold(self, trip_id):
+        self.confirmed.append(trip_id)
+        if self.failure:
+            raise self.failure
+        return "HO-0A1B2C3D"
 
     def release_hold(self, trip_id):
         self.released.append(trip_id)
@@ -129,3 +136,7 @@ def sqs_event(*envelopes):
             for i, envelope in enumerate(envelopes)
         ]
     }
+
+
+def confirm(trip_id="trp_123", token=TOKEN):
+    return command("ConfirmHotel", trip_id, token, reservation_id=HOLD["reservation_id"])

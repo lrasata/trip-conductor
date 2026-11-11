@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trip-conductor/events/payment-charged.schema.json",
+  "title": "PaymentCharged v1 data",
+  "type": "object",
+  "required": ["payment_id", "amount", "currency"],
+  "properties": {
+    "payment_id": { "type": "string" },
+    "amount": { "type": "integer", "minimum": 1, "description": "In minor units (cents)." },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }
+  }
+}

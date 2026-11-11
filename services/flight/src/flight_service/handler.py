@@ -1,4 +1,4 @@
-"""Lambda entry point: SQS queue `flight-commands` (ReserveFlight, ReleaseFlight).
+"""Lambda entry point: SQS queue `flight-commands` (ReserveFlight, ConfirmFlight, ReleaseFlight).
 
 For each command:
 
@@ -12,6 +12,9 @@ For each command:
 ReleaseFlight marks the reservation before calling the airline, and works without one: if
 ReserveFlight timed out, a hold may exist that the saga never heard about. A ReserveFlight
 that arrives after that finds the mark and gives back the hold it just placed.
+
+ConfirmFlight comes after the payment and only moves forward: the saga retries it until it
+succeeds. Only a held reservation can be confirmed; anything else is a bug, left to the DLQ.
 
 The task token is a credential for one step: it's never logged and never stored.
 """
@@ -28,11 +31,11 @@ from circuit_breaker import Breaker, CircuitOpen, Config, VendorFailure
 from event_envelope import check_supported, new_event, to_entry
 
 from flight_service import reservation, vendor
-from flight_service.reservation import HELD, RELEASED, RELEASING, UNAVAILABLE, Answer
+from flight_service.reservation import CONFIRMED, HELD, RELEASED, RELEASING, UNAVAILABLE, Answer
 
 SERVICE = "flight-service"
 VENDOR = "airline"
-HANDLES = (("ReserveFlight", 1), ("ReleaseFlight", 1))
+HANDLES = (("ReserveFlight", 1), ("ConfirmFlight", 1), ("ReleaseFlight", 1))
 VENDOR_UNAVAILABLE = (CircuitOpen, VendorFailure)
 TASK_GONE = ("TaskTimedOut", "InvalidToken", "TaskDoesNotExist")
 
@@ -175,6 +178,56 @@ def _reserve(envelope: dict) -> str:
     return outcome
 
 
+def _confirm(envelope: dict) -> str:
+    trip_id = envelope["correlation_id"]
+    token = envelope["task_token"]
+    item = _stored(trip_id)
+
+    if item is None or item["status"] not in (HELD, CONFIRMED):
+        raise ValueError(f"cannot confirm a reservation that is {item['status'] if item else 'missing'}")
+
+    if item["status"] == CONFIRMED:
+        _answer(token, Answer(output={"booking_reference": item["booking_reference"]}), trip_id)
+        _publish_pending(item)
+        return "duplicate"
+
+    try:
+        booking_reference = _aws()["breaker"].call(lambda: vendor.confirm_hold(trip_id))
+    except VENDOR_UNAVAILABLE as exc:
+        _log(logging.WARNING, "airline unavailable", correlation_id=trip_id, error=type(exc).__name__)
+        _answer(token, Answer(error="VendorUnavailable"), trip_id)
+        return "vendor_unavailable"
+
+    event = new_event(
+        "FlightConfirmed",
+        trip_id,
+        SERVICE,
+        {"reservation_id": item["reservation_id"], "booking_reference": booking_reference},
+    )
+    try:
+        confirmed = _aws()["table"].update_item(
+            Key={"trip_id": trip_id},
+            UpdateExpression="SET #status = :confirmed, booking_reference = :reference, pending_event = :event",
+            ConditionExpression="#status = :held",
+            ExpressionAttributeNames={"#status": "status"},
+            ExpressionAttributeValues={
+                ":confirmed": CONFIRMED,
+                ":held": HELD,
+                ":reference": booking_reference,
+                ":event": json.dumps(event),
+            },
+            ReturnValues="ALL_NEW",
+        )["Attributes"]
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] != "ConditionalCheckFailedException":
+            raise
+        confirmed = _stored(trip_id)  # another delivery confirmed it first: answer with its result
+
+    _answer(token, Answer(output={"booking_reference": confirmed["booking_reference"]}), trip_id)
+    _publish_pending(confirmed)
+    return "confirmed"
+
+
 def _release(envelope: dict) -> str:
     trip_id = envelope["correlation_id"]
     token = envelope["task_token"]
@@ -231,10 +284,13 @@ def _release(envelope: dict) -> str:
     return "released"
 
 
+COMMANDS = {"ReserveFlight": _reserve, "ConfirmFlight": _confirm, "ReleaseFlight": _release}
+
+
 def process(envelope: dict) -> str:
     """Handle one command. Returns what happened, for logs and tests."""
     check_supported(envelope, *HANDLES)
-    return _reserve(envelope) if envelope["message_type"] == "ReserveFlight" else _release(envelope)
+    return COMMANDS[envelope["message_type"]](envelope)
 
 
 def handler(event: dict, context: object) -> dict:

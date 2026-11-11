@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trip-conductor/events/hotel-confirmed.schema.json",
+  "title": "HotelConfirmed v1 data",
+  "type": "object",
+  "required": ["reservation_id", "booking_reference"],
+  "properties": {
+    "reservation_id": { "type": "string" },
+    "booking_reference": { "type": "string" }
+  }
+}

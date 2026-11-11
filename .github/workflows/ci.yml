@@ -26,6 +26,7 @@ jobs:
           - services/vendor_simulator
           - services/flight
           - services/hotel
+          - services/payment
           - statemachine
     steps:
       - uses: actions/checkout@v5

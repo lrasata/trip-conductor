@@ -52,8 +52,13 @@ variable "services" {
   }
 
   validation {
-    condition     = !contains(var.services, "booking-saga") || (contains(var.services, "flight") && contains(var.services, "hotel"))
-    error_message = "booking-saga sends commands to the flight and hotel queues, so deploy both first."
+    condition     = !contains(var.services, "payment") || contains(var.services, "vendor-simulator")
+    error_message = "payment calls the vendor simulator, so deploy vendor-simulator first."
+  }
+
+  validation {
+    condition     = !contains(var.services, "booking-saga") || alltrue([for s in ["flight", "hotel", "payment"] : contains(var.services, s)])
+    error_message = "booking-saga sends commands to the flight, hotel and payment queues, so deploy them first."
   }
 }
 

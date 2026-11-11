@@ -1,8 +1,9 @@
 import json
+import logging
 from datetime import datetime, timezone
 
 import pytest
-from conftest import place_hold_request, room_hold_request
+from conftest import charge_request, confirm_request, place_hold_request, room_hold_request
 
 from vendor_simulator_service import airline, hotel
 from vendor_simulator_service.handler import handler
@@ -121,3 +122,71 @@ def test_releasing_a_room_always_succeeds(aws):
     request = {"routeKey": "DELETE /hotel/holds/{reference}", "pathParameters": {"reference": "trp_123"}}
 
     assert handler(request, None)["statusCode"] == 204
+
+
+# ---------------------------------------------------------------- confirmations
+
+
+@pytest.mark.parametrize("vendor", ["airline", "hotel"])
+def test_confirming_gives_a_stable_booking_reference(aws, vendor):
+    first = handler(confirm_request(vendor), None)
+    second = handler(confirm_request(vendor), None)
+
+    assert first["statusCode"] == 200
+    assert json.loads(first["body"]) == json.loads(second["body"])
+    assert json.loads(first["body"])["booking_reference"].startswith(vendor[:2].upper() + "-")
+
+
+def test_chaos_can_be_limited_to_confirmations(aws):
+    aws("hotel", failure_rate=1, latency_ms=0, operations=["confirm"])
+
+    assert handler(room_hold_request(), None)["statusCode"] == 201
+    assert handler(confirm_request("hotel"), None)["statusCode"] == 503
+
+
+# ---------------------------------------------------------------- payment
+
+
+def test_charges_a_card(aws):
+    response = handler(charge_request(amount=61800), None)
+
+    assert response["statusCode"] == 201
+    charge = json.loads(response["body"])
+    assert charge["amount"] == 61800
+    assert charge["charge_id"].startswith("ch_")
+
+
+def test_the_same_reference_is_charged_once(aws):
+    first = json.loads(handler(charge_request(), None)["body"])
+    second = json.loads(handler(charge_request(), None)["body"])
+
+    assert first["charge_id"] == second["charge_id"]
+
+
+@pytest.mark.parametrize(
+    "token, decline_code",
+    [("tok_declined", "card_declined"), ("tok_insufficient_funds", "insufficient_funds"), ("tok_unknown", "invalid_token")],
+)
+def test_declines_with_a_code(aws, token, decline_code):
+    response = handler(charge_request(payment_token=token), None)
+
+    assert response["statusCode"] == 402
+    assert json.loads(response["body"])["decline_code"] == decline_code
+
+
+@pytest.mark.parametrize("amount, currency", [(0, "EUR"), (100, "EURO")])
+def test_rejects_an_amount_it_cannot_charge(aws, amount, currency):
+    assert handler(charge_request(amount=amount, currency=currency), None)["statusCode"] == 400
+
+
+def test_a_charge_requires_an_idempotency_key(aws):
+    assert handler(charge_request(reference=None), None)["statusCode"] == 400
+
+
+def test_the_card_token_is_never_logged(aws, caplog):
+    caplog.set_level(logging.INFO)
+
+    handler(charge_request(payment_token="tok_visa"), None)
+    handler(charge_request(payment_token="tok_declined"), None)
+
+    assert "tok_" not in caplog.text
