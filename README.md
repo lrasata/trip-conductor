@@ -2,7 +2,7 @@
 
 I wanted to practise **orchestration**: one component coordinating several services through a business transaction that must succeed as a whole, or not at all. To have something concrete to build, I imagined a scenario, split it into the problems it raises, matched each problem with a design pattern, and then looked for the AWS services to build each pattern with.
 
-> **Status:** first slice. The [requirements](docs/requirements.md), the [event and command catalog](docs/events/catalog.md), the [decisions](docs/decisions/) and the [Terraform stacks and CI/CD](infra/README.md) are in place. One flight reservation runs through the saga, the airline simulator and the circuit breaker; the hotel, payment and API steps come next.
+> **Status:** flight and hotel. The [requirements](docs/requirements.md), the [event and command catalog](docs/events/catalog.md), the [decisions](docs/decisions/) and the [Terraform stacks and CI/CD](infra/README.md) are in place. The saga reserves a flight, then a hotel, through the vendor simulator and the circuit breakers, and releases them in reverse when a step fails; the payment and API steps come next.
 
 ## The scenario
 
@@ -27,7 +27,7 @@ A traveller books a weekend in Lisbon on a travel website: a flight, a hotel, on
 | 2–5 | The coordinator must hand work to services that may be slow or down, without losing it | **Asynchronous request-reply** | SQS queue per service + Step Functions task tokens (`.waitForTaskToken`) |
 | 2–3 | If the saga dies halfway, holds must not stay forever | **Reservation with expiry** (a semantic lock) | Holds with a 15 min expiry, DynamoDB TTL |
 | 6 | Stop hammering a system that is down | **Circuit breaker** | Breaker state shared by all Lambdas in DynamoDB, conditional writes |
-| 6 | Retrying too fast makes outages worse | **Retry with exponential backoff** | Step Functions `Retry` (30, 60, 120 s) |
+| 6 | Retrying too fast makes outages worse | **Retry with exponential backoff** | Step Functions `Retry` (5, 10, 20 s) |
 | 1 | A double click must not book twice | **Idempotent receiver** | Trip ID from customer + `Idempotency-Key`, used as the execution name |
 | 7 | Reads must not load the booking flow, and need data from every service | **CQRS** | Projector Lambda → `trip-view` DynamoDB table → separate query API |
 | 7 | The read model must be rebuildable | **Event replay** | EventBridge archive + replay |
@@ -79,7 +79,7 @@ The vendor simulator stands in for an airline, a hotel provider and a payment pr
 
 * **Why DynamoDB and not memory:** a Lambda function runs as many concurrent instances. An in-memory breaker in each one would only see its own failures, so the vendor would keep getting hammered by the others. A shared record lets one instance's failures protect all of them.
 * **What counts as a failure:** timeouts, 5xx and connection errors. A business "no" (room unavailable, card declined) means the vendor is healthy and doesn't count.
-* **Open means fail fast:** the service returns `VendorUnavailable` to the saga without calling the vendor. The state machine retries that error with backoff (30 s, 60 s, 120 s); if the vendor is still down, it compensates and cancels with a clear reason instead of waiting forever.
+* **Open means fail fast:** the service returns `VendorUnavailable` to the saga without calling the vendor. The state machine retries that error with backoff (5 s, 10 s, 20 s); if the vendor is still down, it compensates and cancels with a clear reason instead of waiting forever.
 * Opening and closing the breaker publishes `CircuitOpened` / `CircuitClosed` and raises an alarm.
 
 More in [ADR 0005](docs/decisions/0005-circuit-breaker-in-dynamodb.md).

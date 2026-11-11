@@ -6,28 +6,29 @@ from moto import mock_aws
 
 from vendor_simulator_service import handler as handler_module
 
-PARAMETER = "/trip-conductor/test/chaos/airline"
+PREFIX = "/trip-conductor/test/chaos/"
 
 
 @pytest.fixture
 def aws(monkeypatch):
-    """Fake AWS (moto): the chaos parameter, with no chaos set."""
+    """Fake AWS (moto): a chaos parameter per vendor, with no chaos set."""
     monkeypatch.setenv("AWS_DEFAULT_REGION", "eu-central-1")
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
     monkeypatch.delenv("AWS_PROFILE", raising=False)
-    monkeypatch.setenv("CHAOS_PARAMETER", PARAMETER)
+    monkeypatch.setenv("CHAOS_PARAMETER_PREFIX", PREFIX)
 
     with mock_aws():
         ssm = boto3.client("ssm")
         handler_module._aws.cache_clear()
-        handler_module._chaos_cache.update(expires_at=0.0, settings=handler_module.NO_CHAOS)
+        handler_module._chaos_cache.clear()
 
-        def set_chaos(**settings):
-            ssm.put_parameter(Name=PARAMETER, Type="String", Overwrite=True, Value=json.dumps(settings))
-            handler_module._chaos_cache["expires_at"] = 0.0
+        def set_chaos(vendor="airline", **settings):
+            ssm.put_parameter(Name=PREFIX + vendor, Type="String", Overwrite=True, Value=json.dumps(settings))
+            handler_module._chaos_cache.clear()
 
-        set_chaos(failure_rate=0, latency_ms=0)
+        for vendor in ("airline", "hotel"):
+            set_chaos(vendor, failure_rate=0, latency_ms=0)
         yield set_chaos
 
     handler_module._aws.cache_clear()
@@ -38,4 +39,12 @@ def place_hold_request(offer_id="fl_lis_weekend", passengers=2, reference="trp_1
         "routeKey": "POST /airline/holds",
         "headers": {"idempotency-key": reference} if reference else {},
         "body": json.dumps({"offer_id": offer_id, "passengers": passengers}),
+    }
+
+
+def room_hold_request(offer_id="ht_lis_centre", check_in="2026-12-04", check_out="2026-12-06", guests=2):
+    return {
+        "routeKey": "POST /hotel/holds",
+        "headers": {"idempotency-key": "trp_123"},
+        "body": json.dumps({"offer_id": offer_id, "check_in": check_in, "check_out": check_out, "guests": guests}),
     }

@@ -19,7 +19,7 @@ def parameter_name(env: str, vendor: str) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("vendor", choices=["airline"])
+    parser.add_argument("vendor", choices=["airline", "hotel"])
     parser.add_argument("--failure-rate", type=float, default=0, help="share of calls that fail, from 0 to 1")
     parser.add_argument("--latency-ms", type=int, default=0, help="delay added to every call")
     parser.add_argument("--env", default="dev")

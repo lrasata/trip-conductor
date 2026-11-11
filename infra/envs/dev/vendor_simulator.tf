@@ -1,23 +1,30 @@
-# The vendor simulator: stands in for the airline, and later the hotel and payment providers.
+# The vendor simulator: stands in for the airline and the hotel provider, and later the payment provider.
 # API Gateway -> Lambda. It holds no data, so it's public, with a throttle as its protection.
 
 locals {
   vendor_simulator_service = "${local.name_prefix}-vendor-simulator"
   vendor_simulator_count   = local.deploy["vendor-simulator"] ? 1 : 0
-  vendor_routes            = ["POST /airline/holds", "DELETE /airline/holds/{reference}"]
+  vendors                  = ["airline", "hotel"]
+  vendor_routes            = flatten([for vendor in local.vendors : ["POST /${vendor}/holds", "DELETE /${vendor}/holds/{reference}"]])
+  chaos_parameter_prefix   = "/trip-conductor/${var.environment}/chaos/"
 }
 
-# scripts/chaos.py writes this parameter; Terraform only creates it.
-resource "aws_ssm_parameter" "chaos_airline" {
-  count = local.vendor_simulator_count
+# One parameter per vendor. scripts/chaos.py writes them; Terraform only creates them.
+resource "aws_ssm_parameter" "chaos" {
+  for_each = toset(local.vendor_simulator_count == 1 ? local.vendors : [])
 
-  name  = "/trip-conductor/${var.environment}/chaos/airline"
+  name  = "${local.chaos_parameter_prefix}${each.key}"
   type  = "String"
   value = jsonencode({ failure_rate = 0, latency_ms = 0 })
 
   lifecycle {
     ignore_changes = [value]
   }
+}
+
+moved {
+  from = aws_ssm_parameter.chaos_airline[0]
+  to   = aws_ssm_parameter.chaos["airline"]
 }
 
 # ---------------------------------------------------------------- function
@@ -53,7 +60,7 @@ resource "aws_lambda_function" "vendor_simulator" {
 
   environment {
     variables = {
-      CHAOS_PARAMETER = aws_ssm_parameter.chaos_airline[0].name
+      CHAOS_PARAMETER_PREFIX = local.chaos_parameter_prefix
     }
   }
 
@@ -129,7 +136,7 @@ data "aws_iam_policy_document" "vendor_simulator" {
   statement {
     sid       = "ReadChaosSettings"
     actions   = ["ssm:GetParameter"]
-    resources = [aws_ssm_parameter.chaos_airline[0].arn]
+    resources = [for parameter in aws_ssm_parameter.chaos : parameter.arn]
   }
 
   statement {
