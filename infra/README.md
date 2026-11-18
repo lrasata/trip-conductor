@@ -36,6 +36,8 @@ Services are added one at a time, and each gets its own `<service>.tf` gated by 
 | Saga | `trip-conductor-dev-booking-saga` state machine, with alarms on failed and timed-out executions. A cancelled trip is a normal end, so it fires no alarm; `NeedsAttention` does |
 | Trips API | `trip-conductor-dev-trips` REST API (stage `v1`) with one API key and a usage plan (10 requests/s, burst 20, 1000 a day). `POST /trips` → `trip-conductor-dev-trip-commands` Lambda → the saga |
 | Read model | `trip-conductor-dev-projector` rule on the bus → `trip-conductor-dev-projector-events` queue (DLQ, alarms) → `trip-conductor-dev-projector` Lambda → `trip-conductor-dev-trip-view` table. `GET /trips` and `GET /trips/{trip_id}` → `trip-conductor-dev-trip-queries` Lambda, which only reads that table |
+| Notifications | `trip-conductor-dev-notification` rule (`TripConfirmed`, `TripCancelled`) → `trip-conductor-dev-notification-events` queue (DLQ, alarms) → `trip-conductor-dev-notification` Lambda → SES. `trip-conductor-dev-notifications` and `trip-conductor-dev-customer-contacts` tables, and `ALERT_EMAIL` as a verified SES sender |
+| Alerts | `trip-conductor-dev-circuit-opened` rule: every `CircuitOpened` → the ops-alerts topic, as a readable email |
 
 ### Try it
 
@@ -61,15 +63,16 @@ You can still start the state machine by hand: in the Step Functions console cho
 
 | Test | Input | Expected |
 |---|---|---|
-| Happy path (D1) | `trip-available.json` | Reserve flight, reserve hotel, charge 618.00 EUR, confirm both in parallel, **TripConfirmed**. Both reservations are `CONFIRMED`, the payment `CHARGED`. `GET /trips/{id}` shows `CONFIRMED` and a timeline of 7 events |
+| Happy path (D1) | `trip-available.json` | Reserve flight, reserve hotel, charge 618.00 EUR, confirm both in parallel, **TripConfirmed**. Both reservations are `CONFIRMED`, the payment `CHARGED`. `GET /trips/{id}` shows `CONFIRMED` and a timeline of 7 events. An email "Your trip is booked" reaches `ALERT_EMAIL` |
 | Flight sold out | `flight-sold-out.json` | **TripCancelled**, `FLIGHT_UNAVAILABLE`; the hotel is never asked |
 | Hotel sold out (D2) | `hotel-sold-out.json` | `ReleaseFlight`, then **TripCancelled**, `HOTEL_UNAVAILABLE` |
 | Card declined (D3) | `card-declined.json` | `ReleaseHotel`, then `ReleaseFlight`, then **TripCancelled**, `PAYMENT_DECLINED`. Both reservations are `RELEASED`, the payment `DECLINED` |
-| Airline down (D4) | `chaos/airline` set to `{"failure_rate": 1, "latency_ms": 0}`, then `trip-available.json` | Retries after 5, 10 and 20 s, then `VENDOR_UNAVAILABLE`. Two runs started together open the `airline` breaker |
+| Airline down (D4) | `chaos/airline` set to `{"failure_rate": 1, "latency_ms": 0}`, then `trip-available.json` | Retries after 5, 10 and 20 s, then `VENDOR_UNAVAILABLE`. Two runs started together open the `airline` breaker, and `ALERT_EMAIL` gets "Circuit breaker OPEN for vendor airline" |
 | Vendor back | Parameter back to `{"failure_rate": 0, "latency_ms": 0}`, wait 30 s, then `trip-available.json` | The breaker closes |
 | Vendor slow (D5) | `{"failure_rate": 0, "latency_ms": 8000}` | Calls time out after 3 s and count as failures |
 | Confirmation fails after payment (D6) | `chaos/hotel` set to `{"failure_rate": 1, "latency_ms": 0, "operations": ["confirm"]}`, then `trip-available.json` | Reserved and charged, `ConfirmHotel` retried, then **NeedsAttention**: the execution fails and the alarm emails you. Nothing is released or refunded |
 | Same request twice (D7) | `trip-available.json` sent twice with the same `Idempotency-Key` | Both answers carry the same `trip_id`, and the console shows one execution. A new key starts a new booking |
+| Rebuild the read model (D8) | Note a few `GET /trips/{id}` answers, run `python scripts/rebuild_read_model.py`, wait for `Replay COMPLETED` | The same answers as before. No email is sent again |
 
 Change a parameter in the console (Systems Manager → Parameter Store → Edit) or with `python scripts/chaos.py hotel --failure-rate 1 --operations confirm`, which needs the AWS CLI and credentials allowed `ssm:PutParameter` on `/trip-conductor/*`. The simulator reads it within 5 s. `operations` limits the failures to some calls: `hold`, `release`, `confirm`, `charge`.
 
@@ -143,6 +146,14 @@ In GitHub, under *Settings → Secrets and variables → Actions → Variables*,
 Finally create the environment `dev` under *Settings → Environments*. Adding yourself as a required reviewer there makes every deploy wait for your approval.
 
 After the first deploy, AWS sends `ALERT_EMAIL` a "Subscription Confirmation" for the alerts topic. Click the link once.
+
+Once the notification service is deployed, AWS also sends `ALERT_EMAIL` an "Email Address Verification Request" from SES: click it too, then give the demo customer that address (it needs the AWS CLI and your credentials):
+
+```powershell
+python scripts/add_contact.py cus_demo you@example.com
+```
+
+SES starts in its sandbox, where it only sends to verified addresses: that's why the demo customer uses the same address. A customer without a contact gets no email; the notification is recorded as `NO_CONTACT`.
 
 ## Tear it down
 

@@ -2,7 +2,7 @@
 
 Orchestrated trip booking on AWS: a Step Functions Standard state machine (the saga) sends commands to the flight, hotel and payment services over SQS with task tokens, compensates in reverse on failure, and publishes domain events to an EventBridge bus that feeds a CQRS read model and notifications. Vendor calls go through a DynamoDB-backed circuit breaker. Python 3.13 on Lambda, Terraform, GitHub Actions with OIDC. Sibling project of `../apply-relay` (choreography) and follows its conventions unless noted here.
 
-Status: the booking transaction is built (vendor simulator, circuit breaker, flight, hotel and payment services, the full saga with confirmation and `NeedsAttention`); `POST /trips` starts it through the API, and the projector keeps `trip-view` for `GET /trips`; notifications come next. Start with `README.md`, `docs/requirements.md`, `docs/events/catalog.md`, `docs/decisions/` and `infra/README.md`.
+Status: everything in the design is built: the booking transaction (vendor simulator, circuit breaker, flight, hotel and payment services, the saga with confirmation and `NeedsAttention`), `POST /trips`, the projector and `GET /trips`, notifications, the `CircuitOpened` alert and the read model rebuild. Start with `README.md`, `docs/requirements.md`, `docs/events/catalog.md`, `docs/decisions/` and `infra/README.md`.
 
 ## Commands
 
@@ -10,7 +10,7 @@ Tests run one folder at a time, each with its own `pyproject.toml`. CI lists the
 
 ```bash
 pip install -r services/flight/requirements-dev.txt
-pytest services/flight        # libs/event_envelope, libs/circuit_breaker, services/vendor_simulator, services/flight, services/hotel, services/payment, services/trip_commands, services/projector, services/trip_queries, statemachine
+pytest services/flight        # libs/event_envelope, libs/circuit_breaker, services/vendor_simulator, services/flight, services/hotel, services/payment, services/trip_commands, services/projector, services/trip_queries, services/notification, statemachine
 ```
 
 Terraform:

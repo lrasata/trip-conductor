@@ -46,6 +46,53 @@ resource "aws_sns_topic" "ops_alerts" {
   name = "${local.name_prefix}-ops-alerts"
 }
 
+# The default topic policy (the account may use it, which covers CloudWatch alarms), plus
+# EventBridge for the CircuitOpened alert, limited to that rule.
+data "aws_iam_policy_document" "ops_alerts" {
+  statement {
+    sid       = "AccountOwner"
+    actions   = ["sns:GetTopicAttributes", "sns:SetTopicAttributes", "sns:AddPermission", "sns:RemovePermission", "sns:DeleteTopic", "sns:Subscribe", "sns:ListSubscriptionsByTopic", "sns:Publish"]
+    resources = [aws_sns_topic.ops_alerts.arn]
+
+    principals {
+      type        = "AWS"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceOwner"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = aws_cloudwatch_event_rule.circuit_opened[*].arn
+
+    content {
+      sid       = "CircuitOpenedAlert"
+      actions   = ["sns:Publish"]
+      resources = [aws_sns_topic.ops_alerts.arn]
+
+      principals {
+        type        = "Service"
+        identifiers = ["events.amazonaws.com"]
+      }
+
+      condition {
+        test     = "ArnEquals"
+        variable = "aws:SourceArn"
+        values   = [statement.value]
+      }
+    }
+  }
+}
+
+resource "aws_sns_topic_policy" "ops_alerts" {
+  arn    = aws_sns_topic.ops_alerts.arn
+  policy = data.aws_iam_policy_document.ops_alerts.json
+}
+
 resource "aws_sns_topic_subscription" "ops_alerts_email" {
   topic_arn = aws_sns_topic.ops_alerts.arn
   protocol  = "email"
