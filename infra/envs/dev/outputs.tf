@@ -22,6 +22,16 @@ output "booking_saga_arn" {
   value       = one(aws_sfn_state_machine.booking_saga[*].arn)
 }
 
+output "trips_api_url" {
+  description = "Base URL of the trips API: POST {url}/trips."
+  value       = one(aws_api_gateway_stage.trips[*].invoke_url)
+}
+
+output "trips_api_key_id" {
+  description = "ID of the trips API key. Its value: API Gateway console -> API keys, or aws apigateway get-api-key --include-value --api-key <id>."
+  value       = one(aws_api_gateway_api_key.trips[*].id)
+}
+
 output "flight_commands_dlq_url" {
   description = "Where flight commands end up after 3 failed attempts."
   value       = one(module.flight_commands[*].dlq_url)
