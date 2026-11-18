@@ -1,4 +1,4 @@
-# The trips API: POST /trips (trip-commands) and, later, GET /trips (trip-queries).
+# The trips API: POST /trips (trip-commands) and GET /trips (trip-queries).
 # A REST API rather than an HTTP API because it needs API keys and a usage plan: customers
 # aren't authenticated (out of scope), so the key is what keeps the API from being public.
 
@@ -37,6 +37,9 @@ resource "aws_api_gateway_deployment" "trips" {
       aws_api_gateway_resource.trips,
       aws_api_gateway_method.post_trips,
       aws_api_gateway_integration.post_trips,
+      aws_api_gateway_resource.trip,
+      aws_api_gateway_method.get_trips,
+      aws_api_gateway_integration.get_trips,
     ]))
   }
 
@@ -44,7 +47,7 @@ resource "aws_api_gateway_deployment" "trips" {
     create_before_destroy = true
   }
 
-  depends_on = [aws_api_gateway_integration.post_trips]
+  depends_on = [aws_api_gateway_integration.post_trips, aws_api_gateway_integration.get_trips]
 }
 
 resource "aws_api_gateway_stage" "trips" {
