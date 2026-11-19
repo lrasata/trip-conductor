@@ -2,7 +2,7 @@
 
 I wanted to practise **orchestration**: one component coordinating several services through a business transaction that must succeed as a whole, or not at all. To have something concrete to build, I imagined a scenario, split it into the problems it raises, matched each problem with a design pattern, and then looked for the AWS services to build each pattern with.
 
-> **Status:** the booking transaction works end to end: the saga reserves a flight and a hotel, charges the payment, then confirms both, and releases in reverse when a step before the payment fails. Bookings are started with `POST /trips` and followed with `GET /trips`, from a read model; the notifications come next.
+> **Status:** the booking transaction works end to end: the saga reserves a flight and a hotel, charges the payment, then confirms both, and releases in reverse when a step before the payment fails. Bookings are started with `POST /trips` and followed with `GET /trips` from a rebuildable read model, the customer gets an email when the trip ends, and a vendor outage alerts you.
 
 | Part | State |
 |---|---|
@@ -13,7 +13,7 @@ I wanted to practise **orchestration**: one component coordinating several servi
 | [Vendor simulator](services/vendor_simulator/) with chaos settings per vendor and operation | built |
 | [`POST /trips`](services/trip_commands/) (trip-commands), behind an API key | built |
 | [Projector](services/projector/), `trip-view` and [`GET /trips`](services/trip_queries/) (CQRS) | built |
-| Notifications, `CircuitOpened` alarm, read model rebuild | next |
+| [Notifications](services/notification/), `CircuitOpened` alert, [read model rebuild](scripts/rebuild_read_model.py) | built |
 
 To try it, follow [Try it](infra/README.md#try-it).
 
@@ -93,7 +93,7 @@ The vendor simulator stands in for an airline, a hotel provider and a payment pr
 * **Why DynamoDB and not memory:** a Lambda function runs as many concurrent instances. An in-memory breaker in each one would only see its own failures, so the vendor would keep getting hammered by the others. A shared record lets one instance's failures protect all of them.
 * **What counts as a failure:** timeouts, 5xx and connection errors. A business "no" (room unavailable, card declined) means the vendor is healthy and doesn't count.
 * **Open means fail fast:** the service returns `VendorUnavailable` to the saga without calling the vendor. The state machine retries that error with backoff (5 s, 10 s, 20 s); if the vendor is still down, it compensates and cancels with a clear reason instead of waiting forever.
-* Opening and closing the breaker publishes `CircuitOpened` / `CircuitClosed`. An alarm on `CircuitOpened` is planned.
+* Opening and closing the breaker publishes `CircuitOpened` / `CircuitClosed`. An EventBridge rule sends every `CircuitOpened` to the ops-alerts topic, so you get an email naming the vendor.
 
 More in [ADR 0005](docs/decisions/0005-circuit-breaker-in-dynamodb.md).
 

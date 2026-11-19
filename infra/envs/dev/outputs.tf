@@ -56,3 +56,8 @@ output "projector_rule_arn" {
   description = "A rebuild replays the archive to this rule only."
   value       = one(module.projector_events[*].rule_arn)
 }
+
+output "notification_events_dlq_url" {
+  description = "Where events for the notification service end up after 3 failed attempts."
+  value       = one(module.notification_events[*].dlq_url)
+}
