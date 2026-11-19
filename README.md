@@ -2,7 +2,7 @@
 
 I wanted to practise **orchestration**: one component coordinating several services through a business transaction that must succeed as a whole, or not at all. To have something concrete to build, I imagined a scenario, split it into the problems it raises, matched each problem with a design pattern, and then looked for the AWS services to build each pattern with.
 
-> **Status:** the booking transaction works end to end: the saga reserves a flight and a hotel, charges the payment, then confirms both, and releases in reverse when a step before the payment fails. Bookings are started from the Step Functions console for now; the API, the read model and the notifications come next.
+> **Status:** the booking transaction works end to end: the saga reserves a flight and a hotel, charges the payment, then confirms both, and releases in reverse when a step before the payment fails. Bookings are started with `POST /trips`; the read model and the notifications come next.
 
 | Part | State |
 |---|---|
@@ -11,8 +11,8 @@ I wanted to practise **orchestration**: one component coordinating several servi
 | Booking saga ([`statemachine/`](statemachine/)): reserve, charge, confirm, compensate, `NeedsAttention` | built |
 | [Flight](services/flight/), [hotel](services/hotel/) and [payment](services/payment/) services, each behind a [circuit breaker](libs/circuit_breaker/) | built |
 | [Vendor simulator](services/vendor_simulator/) with chaos settings per vendor and operation | built |
-| `POST /trips` (trip-commands) | next |
-| Projector, `trip-view` and `GET /trips` (CQRS) | planned |
+| [`POST /trips`](services/trip_commands/) (trip-commands), behind an API key | built |
+| Projector, `trip-view` and `GET /trips` (CQRS) | next |
 | Notifications, `CircuitOpened` alarm, read model rebuild | planned |
 
 To try it, follow [Try it](infra/README.md#try-it).

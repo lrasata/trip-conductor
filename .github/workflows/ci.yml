@@ -27,6 +27,7 @@ jobs:
           - services/flight
           - services/hotel
           - services/payment
+          - services/trip_commands
           - statemachine
     steps:
       - uses: actions/checkout@v5

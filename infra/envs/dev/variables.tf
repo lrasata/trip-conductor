@@ -60,6 +60,11 @@ variable "services" {
     condition     = !contains(var.services, "booking-saga") || alltrue([for s in ["flight", "hotel", "payment"] : contains(var.services, s)])
     error_message = "booking-saga sends commands to the flight, hotel and payment queues, so deploy them first."
   }
+
+  validation {
+    condition     = !contains(var.services, "trip-commands") || contains(var.services, "booking-saga")
+    error_message = "trip-commands starts the booking saga, so deploy booking-saga first."
+  }
 }
 
 variable "vendor_api_rate_limit" {
@@ -72,6 +77,24 @@ variable "vendor_api_burst_limit" {
   description = "Short burst of requests allowed on the vendor simulator's public API."
   type        = number
   default     = 40
+}
+
+variable "trips_api_rate_limit" {
+  description = "Steady-state requests per second allowed on the trips API, for the one API key."
+  type        = number
+  default     = 10
+}
+
+variable "trips_api_burst_limit" {
+  description = "Short burst of requests allowed on the trips API."
+  type        = number
+  default     = 20
+}
+
+variable "trips_api_daily_quota" {
+  description = "Requests per day allowed on the trips API: a cap on what a leaked key can cost."
+  type        = number
+  default     = 1000
 }
 
 variable "lambda_permissions_boundary" {

@@ -33,10 +33,21 @@ Services are added one at a time, and each gets its own `<service>.tf` gated by 
 | Payment service | The same for charges: `trip-conductor-dev-payment`, `trip-conductor-dev-payment-commands`, `trip-conductor-dev-payments` |
 | Circuit breakers | `trip-conductor-dev-circuit-breakers` table, one item per vendor |
 | Saga | `trip-conductor-dev-booking-saga` state machine, with alarms on failed and timed-out executions. A cancelled trip is a normal end, so it fires no alarm; `NeedsAttention` does |
+| Trips API | `trip-conductor-dev-trips` REST API (stage `v1`) with one API key and a usage plan (10 requests/s, burst 20, 1000 a day). `POST /trips` → `trip-conductor-dev-trip-commands` Lambda → the saga |
 
 ### Try it
 
-Open the state machine in the Step Functions console and choose **Start execution**. The name is the trip ID, so give each run a new one (`trp_demo_001`, ...), and paste an input from [`scripts/requests/`](../scripts/requests/).
+Send a request from [`scripts/requests/`](../scripts/requests/) to the API. You need its URL (`terraform output trips_api_url`, or API Gateway → `trip-conductor-dev-trips` → Stages → `v1`) and the API key's value (API Gateway → API keys → `trip-conductor-dev-trips` → Show). In PowerShell:
+
+```powershell
+$api = "https://<id>.execute-api.eu-central-1.amazonaws.com/v1"
+$headers = @{ "x-api-key" = "<key>"; "Idempotency-Key" = "demo-001" }
+Invoke-RestMethod -Method Post -Uri "$api/trips" -Headers $headers -ContentType "application/json" -InFile scripts/requests/trip-available.json
+```
+
+The answer holds the trip ID, which is also the name of the saga's execution in the Step Functions console. Use a new `Idempotency-Key` for each booking: the same key returns the trip it booked before.
+
+You can still start the state machine by hand: in the Step Functions console choose **Start execution**, give it a new name (`trp_demo_001`, ...) and paste one of the same files as input.
 
 | Test | Input | Expected |
 |---|---|---|
@@ -48,6 +59,7 @@ Open the state machine in the Step Functions console and choose **Start executio
 | Vendor back | Parameter back to `{"failure_rate": 0, "latency_ms": 0}`, wait 30 s, then `trip-available.json` | The breaker closes |
 | Vendor slow (D5) | `{"failure_rate": 0, "latency_ms": 8000}` | Calls time out after 3 s and count as failures |
 | Confirmation fails after payment (D6) | `chaos/hotel` set to `{"failure_rate": 1, "latency_ms": 0, "operations": ["confirm"]}`, then `trip-available.json` | Reserved and charged, `ConfirmHotel` retried, then **NeedsAttention**: the execution fails and the alarm emails you. Nothing is released or refunded |
+| Same request twice (D7) | `trip-available.json` sent twice with the same `Idempotency-Key` | Both answers carry the same `trip_id`, and the console shows one execution. A new key starts a new booking |
 
 Change a parameter in the console (Systems Manager → Parameter Store → Edit) or with `python scripts/chaos.py hotel --failure-rate 1 --operations confirm`, which needs the AWS CLI and credentials allowed `ssm:PutParameter` on `/trip-conductor/*`. The simulator reads it within 5 s. `operations` limits the failures to some calls: `hold`, `release`, `confirm`, `charge`.
 
