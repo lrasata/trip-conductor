@@ -8,7 +8,8 @@ infra/
 ├── ci/          # one-time: the CI roles and the permissions boundary
 ├── envs/dev/    # the dev environment
 └── modules/
-    └── command_queue/   # SQS queue + DLQ + alarms, per service the saga commands
+    ├── command_queue/   # SQS queue + DLQ + alarms, per service the saga commands
+    └── event_queue/     # EventBridge rule → SQS queue + DLQ + alarms, per service that reacts to events
 ```
 
 ## What the foundation creates
@@ -34,6 +35,7 @@ Services are added one at a time, and each gets its own `<service>.tf` gated by 
 | Circuit breakers | `trip-conductor-dev-circuit-breakers` table, one item per vendor |
 | Saga | `trip-conductor-dev-booking-saga` state machine, with alarms on failed and timed-out executions. A cancelled trip is a normal end, so it fires no alarm; `NeedsAttention` does |
 | Trips API | `trip-conductor-dev-trips` REST API (stage `v1`) with one API key and a usage plan (10 requests/s, burst 20, 1000 a day). `POST /trips` → `trip-conductor-dev-trip-commands` Lambda → the saga |
+| Read model | `trip-conductor-dev-projector` rule on the bus → `trip-conductor-dev-projector-events` queue (DLQ, alarms) → `trip-conductor-dev-projector` Lambda → `trip-conductor-dev-trip-view` table. `GET /trips` and `GET /trips/{trip_id}` → `trip-conductor-dev-trip-queries` Lambda, which only reads that table |
 
 ### Try it
 
@@ -45,13 +47,21 @@ $headers = @{ "x-api-key" = "<key>"; "Idempotency-Key" = "demo-001" }
 Invoke-RestMethod -Method Post -Uri "$api/trips" -Headers $headers -ContentType "application/json" -InFile scripts/requests/trip-available.json
 ```
 
-The answer holds the trip ID, which is also the name of the saga's execution in the Step Functions console. Use a new `Idempotency-Key` for each booking: the same key returns the trip it booked before.
+The answer holds the trip ID, which is also the name of the saga's execution in the Step Functions console. Follow the booking with the `location` it returns:
+
+```powershell
+$trip = Invoke-RestMethod -Method Post -Uri "$api/trips" -Headers $headers -ContentType "application/json" -InFile scripts/requests/trip-available.json
+Invoke-RestMethod -Uri "$api/trips/$($trip.trip_id)" -Headers $headers | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Uri "$api/trips?customer_id=cus_demo" -Headers $headers | ConvertTo-Json -Depth 5
+```
+
+Right after the `POST` the trip can be a `404` for a second or two: the read model is updated asynchronously. Use a new `Idempotency-Key` for each booking: the same key returns the trip it booked before.
 
 You can still start the state machine by hand: in the Step Functions console choose **Start execution**, give it a new name (`trp_demo_001`, ...) and paste one of the same files as input.
 
 | Test | Input | Expected |
 |---|---|---|
-| Happy path (D1) | `trip-available.json` | Reserve flight, reserve hotel, charge 618.00 EUR, confirm both in parallel, **TripConfirmed**. Both reservations are `CONFIRMED`, the payment `CHARGED` |
+| Happy path (D1) | `trip-available.json` | Reserve flight, reserve hotel, charge 618.00 EUR, confirm both in parallel, **TripConfirmed**. Both reservations are `CONFIRMED`, the payment `CHARGED`. `GET /trips/{id}` shows `CONFIRMED` and a timeline of 7 events |
 | Flight sold out | `flight-sold-out.json` | **TripCancelled**, `FLIGHT_UNAVAILABLE`; the hotel is never asked |
 | Hotel sold out (D2) | `hotel-sold-out.json` | `ReleaseFlight`, then **TripCancelled**, `HOTEL_UNAVAILABLE` |
 | Card declined (D3) | `card-declined.json` | `ReleaseHotel`, then `ReleaseFlight`, then **TripCancelled**, `PAYMENT_DECLINED`. Both reservations are `RELEASED`, the payment `DECLINED` |
@@ -63,7 +73,7 @@ You can still start the state machine by hand: in the Step Functions console cho
 
 Change a parameter in the console (Systems Manager → Parameter Store → Edit) or with `python scripts/chaos.py hotel --failure-rate 1 --operations confirm`, which needs the AWS CLI and credentials allowed `ssm:PutParameter` on `/trip-conductor/*`. The simulator reads it within 5 s. `operations` limits the failures to some calls: `hold`, `release`, `confirm`, `charge`.
 
-Events aren't visible on the bus itself: the services log `event published` for each one, and the saga's are steps in its graph.
+Events aren't visible on the bus itself: the services log `event published` for each one, the saga's are steps in its graph, and the projector logs each one it applies (`/aws/lambda/trip-conductor-dev-projector`).
 
 ## Deploy it yourself
 

@@ -65,6 +65,11 @@ variable "services" {
     condition     = !contains(var.services, "trip-commands") || contains(var.services, "booking-saga")
     error_message = "trip-commands starts the booking saga, so deploy booking-saga first."
   }
+
+  validation {
+    condition     = !contains(var.services, "trip-queries") || alltrue([for s in ["trip-commands", "projector"] : contains(var.services, s)])
+    error_message = "trip-queries adds routes to the trip-commands API and reads the projector's trip-view, so deploy both first."
+  }
 }
 
 variable "vendor_api_rate_limit" {

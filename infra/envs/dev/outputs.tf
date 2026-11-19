@@ -46,3 +46,13 @@ output "payment_commands_dlq_url" {
   description = "Where payment commands end up after 3 failed attempts."
   value       = one(module.payment_commands[*].dlq_url)
 }
+
+output "projector_events_dlq_url" {
+  description = "Where events for the projector end up after 3 failed attempts."
+  value       = one(module.projector_events[*].dlq_url)
+}
+
+output "projector_rule_arn" {
+  description = "A rebuild replays the archive to this rule only."
+  value       = one(module.projector_events[*].rule_arn)
+}
