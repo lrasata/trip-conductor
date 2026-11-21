@@ -41,7 +41,18 @@ Services are added one at a time, and each gets its own `<service>.tf` gated by 
 
 ### Try it
 
-Send a request from [`scripts/requests/`](../scripts/requests/) to the API. You need its URL (`terraform output trips_api_url`, or API Gateway → `trip-conductor-dev-trips` → Stages → `v1`) and the API key's value (API Gateway → API keys → `trip-conductor-dev-trips` → Show). In PowerShell:
+Before the first booking, do the two email steps at the end of [Deploy it yourself](#deploy-it-yourself) (SES verification, `add_contact.py`); without them the trip still books, but no email is sent.
+
+Send a request from [`scripts/requests/`](../scripts/requests/) to the API. You need:
+
+- **The URL**: `terraform output trips_api_url` (or the Deploy workflow's log), e.g. `https://<id>.execute-api.eu-central-1.amazonaws.com/v1`.
+- **The API key's value**, not its ID. The output `trips_api_key_id` (10 characters) only names the key; Terraform doesn't output the secret, so it never lands in CI logs. Get the value, about 40 characters, from API Gateway → API keys → `trip-conductor-dev-trips` → Show, or:
+
+  ```powershell
+  aws apigateway get-api-key --api-key <trips_api_key_id> --include-value --query value --output text --region eu-central-1
+  ```
+
+In PowerShell:
 
 ```powershell
 $api = "https://<id>.execute-api.eu-central-1.amazonaws.com/v1"
@@ -57,7 +68,25 @@ Invoke-RestMethod -Uri "$api/trips/$($trip.trip_id)" -Headers $headers | Convert
 Invoke-RestMethod -Uri "$api/trips?customer_id=cus_demo" -Headers $headers | ConvertTo-Json -Depth 5
 ```
 
+With curl (on Windows type `curl.exe`: in PowerShell `curl` is an alias of `Invoke-WebRequest`):
+
+```powershell
+curl.exe -i -X POST "$api/trips" -H "x-api-key: <key>" -H "Idempotency-Key: demo-001" -H "Content-Type: application/json" --data-binary "@scripts/requests/trip-available.json"
+curl.exe -s "$api/trips/<trip_id>" -H "x-api-key: <key>"
+```
+
+In Postman: the same three headers, the body as raw JSON pasted from a request file. Keep the URL and the key in an environment (`{{api}}`, `{{api_key}}`) to reuse them for the `GET`s.
+
 Right after the `POST` the trip can be a `404` for a second or two: the read model is updated asynchronously. Use a new `Idempotency-Key` for each booking: the same key returns the trip it booked before.
+
+| Answer | Usually means |
+|---|---|
+| `403 {"message": "Forbidden"}` | Missing or wrong `x-api-key`: often the key's ID instead of its value |
+| `403 {"message": "Missing Authentication Token"}` | Despite the name, no such route: check the method, the `/v1` stage and the path (no trailing slash), or that the service is deployed |
+| `400 validation_failed` | The body is wrong; `details` says which field |
+| `429 Too Many Requests` | The usage plan's limit (10/s, 1000 a day) |
+| `404` on `GET /trips/{id}` | Not projected yet (poll), or booked before the projector was deployed |
+| A trip ended but no email | The Lambda log says `no contact for this customer`: run `add_contact.py`, then book again. Check the spam folder |
 
 You can still start the state machine by hand: in the Step Functions console choose **Start execution**, give it a new name (`trp_demo_001`, ...) and paste one of the same files as input.
 
