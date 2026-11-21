@@ -2,20 +2,33 @@
 
 I wanted to practise **orchestration**: one component coordinating several services through a business transaction that must succeed as a whole, or not at all. To have something concrete to build, I imagined a scenario, split it into the problems it raises, matched each problem with a design pattern, and then looked for the AWS services to build each pattern with.
 
-> **Status:** the booking transaction works end to end: the saga reserves a flight and a hotel, charges the payment, then confirms both, and releases in reverse when a step before the payment fails. Bookings are started with `POST /trips` and followed with `GET /trips` from a rebuildable read model, the customer gets an email when the trip ends, and a vendor outage alerts you.
+> **Status: complete and tested end to end on AWS.** `POST /trips` starts a saga that reserves a flight and a hotel, charges the payment, then confirms both, and releases in reverse when a step before the payment fails. `GET /trips` follows the booking from a rebuildable read model, the customer gets an email when the trip ends, and a vendor outage emails an alert.
 
-| Part | State |
+## Quick start
+
+1. **Deploy** with GitHub Actions: [Deploy it yourself](infra/README.md#deploy-it-yourself) (state bucket, CI roles, repository variables, then push to `main`).
+2. **Confirm two emails** sent to your `ALERT_EMAIL`: the alerts subscription and the SES verification. Then give the demo customer your address: `python scripts/add_contact.py cus_demo you@example.com`.
+3. **Get the API key's value** (not the `trips_api_key_id` output, which is only its ID): API Gateway → API keys → `trip-conductor-dev-trips` → Show.
+4. **Book a trip** and follow it:
+
+   ```powershell
+   $api = "https://<id>.execute-api.eu-central-1.amazonaws.com/v1"   # terraform output trips_api_url
+   $headers = @{ "x-api-key" = "<key value>"; "Idempotency-Key" = "demo-001" }
+   $trip = Invoke-RestMethod -Method Post -Uri "$api/trips" -Headers $headers -ContentType "application/json" -InFile scripts/requests/trip-available.json
+   Invoke-RestMethod -Uri "$api/trips/$($trip.trip_id)" -Headers $headers | ConvertTo-Json -Depth 5
+   ```
+
+   A few seconds later the trip is `CONFIRMED` and the email arrives. The execution with the same name is in the Step Functions console.
+5. **Break things**: sold-out rooms, a declined card, a vendor down, a confirmation failing after payment, a double click, a read model rebuild. Each test is in [Try it](infra/README.md#try-it), with curl and Postman too.
+
+| Where | What |
 |---|---|
-| [Requirements](docs/requirements.md), [command and event catalog](docs/events/catalog.md), [decisions](docs/decisions/) | written |
-| [Terraform stacks and CI/CD](infra/README.md) (OIDC, plan on pull requests, deploy on `main`) | built |
-| Booking saga ([`statemachine/`](statemachine/)): reserve, charge, confirm, compensate, `NeedsAttention` | built |
-| [Flight](services/flight/), [hotel](services/hotel/) and [payment](services/payment/) services, each behind a [circuit breaker](libs/circuit_breaker/) | built |
-| [Vendor simulator](services/vendor_simulator/) with chaos settings per vendor and operation | built |
-| [`POST /trips`](services/trip_commands/) (trip-commands), behind an API key | built |
-| [Projector](services/projector/), `trip-view` and [`GET /trips`](services/trip_queries/) (CQRS) | built |
-| [Notifications](services/notification/), `CircuitOpened` alert, [read model rebuild](scripts/rebuild_read_model.py) | built |
-
-To try it, follow [Try it](infra/README.md#try-it).
+| [Requirements](docs/requirements.md), [command and event catalog](docs/events/catalog.md), [decisions](docs/decisions/) | what it must do, the messages, why it's built this way |
+| [`statemachine/`](statemachine/) | the booking saga: reserve, charge, confirm, compensate, `NeedsAttention` |
+| [flight](services/flight/), [hotel](services/hotel/), [payment](services/payment/), [circuit breaker](libs/circuit_breaker/), [vendor simulator](services/vendor_simulator/) | the services the saga commands, and the fake vendors behind them |
+| [trip-commands](services/trip_commands/), [projector](services/projector/), [trip-queries](services/trip_queries/) | `POST /trips`, the read model, `GET /trips` |
+| [notification](services/notification/), [`scripts/`](scripts/) | emails; chaos, contacts and read model rebuild scripts |
+| [`infra/`](infra/README.md) | Terraform stacks and CI/CD (OIDC, plan on pull requests, deploy on `main`) |
 
 ## The scenario
 
@@ -142,6 +155,19 @@ More in [ADR 0005](docs/decisions/0005-circuit-breaker-in-dynamodb.md).
 | How long does a booking take, and where? | X-Ray across API Gateway, Step Functions, SQS and Lambda |
 | What did services log? | JSON logs with `correlation_id` = trip ID, one saved Logs Insights query |
 
+## Limits, on purpose
+
+This is a learning project in one dev account. What a real system would do differently:
+
+| Here | In production |
+|---|---|
+| An API key and a usage plan: they identify a client and cap its traffic, they don't authenticate anyone | Cognito or a JWT authorizer, so the customer is a verified user |
+| `customer_id` comes from the request body | It comes from the token, so nobody can book or read someone else's trips |
+| SES in its sandbox: only verified addresses receive email, so the demo customer's address is `ALERT_EMAIL` | SES production access, and contacts from a real customer service |
+| Emails are sent at least once: a crash between sending and recording sends the email again | The same, or a provider with an idempotency key |
+| The vendors are a simulator | Real airline, hotel and payment APIs, each with its own contract and idempotency |
+| One environment, `dev` | Separate accounts per environment, with promotion between them |
+
 ## Tech stack
 
 Python 3.13 · AWS Step Functions · Lambda · API Gateway · SQS · EventBridge (bus, rules, archive and replay) · DynamoDB · SSM Parameter Store · SES · CloudWatch · X-Ray · Terraform · GitHub Actions (OIDC, no stored AWS keys)
@@ -156,7 +182,8 @@ Python 3.13 · AWS Step Functions · Lambda · API Gateway · SQS · EventBridge
 ├── statemachine/      # the saga definition (ASL)
 ├── services/          # one folder per service
 ├── libs/              # shared code: circuit breaker, event envelope
-├── scripts/           # build, chaos, rebuild read model
+├── scripts/           # build, chaos, add a contact, rebuild read model
+│   └── requests/      # sample bookings: available, sold out, card declined
 ├── infra/             # Terraform
 └── .github/workflows/ # CI on pull requests, deploy on main
 ```
